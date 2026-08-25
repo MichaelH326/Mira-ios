@@ -46,8 +46,10 @@ jobs:
         run: brew install xcodegen
 
       # llama.cpp dropped its Swift Package manifest, so we build the
-      # official xcframework and link that instead. The first run takes
-      # roughly half an hour; later runs restore it from the cache.
+      # official xcframework and link that instead. Only the two iOS slices
+      # are requested: the script otherwise also builds macOS, visionOS and
+      # tvOS, one platform at a time, which more than triples the runtime for
+      # slices this app never loads.
       - name: Cache llama.xcframework
         id: cache-llama
         uses: actions/cache@v4
@@ -63,7 +65,7 @@ jobs:
           git clone https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
           cd /tmp/llama.cpp
           git checkout "$LLAMA_REF"
-          ./build-xcframework.sh
+          ./build-xcframework.sh ios-device ios-sim
           rm -rf "$GITHUB_WORKSPACE/ios/Frameworks/llama.xcframework"
           mkdir -p "$GITHUB_WORKSPACE/ios/Frameworks"
           cp -R build-apple/llama.xcframework "$GITHUB_WORKSPACE/ios/Frameworks/"

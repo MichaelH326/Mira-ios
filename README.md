@@ -46,8 +46,8 @@ listed in `.gitignore`.
 `.github/workflows/build-ios.yml` builds an **unsigned** `Mira-unsigned.ipa` on
 a GitHub macOS runner. Run it from the Actions tab. It:
 
-1. builds `llama.xcframework` from llama.cpp (cached between runs — the first
-   build takes roughly half an hour, later ones restore from cache),
+1. builds `llama.xcframework` from llama.cpp — only the `ios-device` and
+   `ios-sim` slices, and cached between runs,
 2. downloads `mira.mdlo` from your newest Release that has one attached,
 3. generates the Xcode project with XcodeGen,
 4. builds with signing disabled,
@@ -96,9 +96,20 @@ won't work. Build its xcframework instead — the officially supported route:
 ```bash
 git clone https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
 cd /tmp/llama.cpp
-./build-xcframework.sh
+./build-xcframework.sh ios-device ios-sim
 cp -R build-apple/llama.xcframework /path/to/this/repo/ios/Frameworks/
 ```
+
+With no arguments the script builds all seven Apple platforms — macOS,
+visionOS and tvOS included — one at a time. Naming the two iOS slices is
+what keeps this to minutes rather than the better part of an hour.
+
+While it runs it looks hung: each platform's output goes to its own
+`build_<platform>.log` rather than the terminal, so the only thing printed
+is one `Starting build:` line per platform. Because the script runs them
+serially, that line appearing means the *previous* platform finished —
+it is the progress bar. `tail -f build-apple/build_ios_device.log` shows
+the live compile.
 
 ### 2. Generate and open the project
 
