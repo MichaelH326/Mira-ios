@@ -16,21 +16,26 @@ struct RootView: View {
     @State private var model: ModelLocator.Source?
 
     var body: some View {
-        ZStack {
-            LinearGradient(colors: [Color(red: 0.05, green: 0.06, blue: 0.11),
-                                    Color(red: 0.10, green: 0.09, blue: 0.18)],
-                           startPoint: .top, endPoint: .bottom)
-                .ignoresSafeArea()
-
+        Group {
             if model == nil {
-                ImportPrompt(showImporter: $showImporter)
+                ZStack {
+                    Palette.background.ignoresSafeArea()
+                    ImportPrompt(showImporter: $showImporter)
+                }
             } else {
-                CallView(call: call,
-                         permissionDenied: $permissionDenied,
-                         showSettings: $showSettings)
+                TabView {
+                    TalkView(call: call,
+                             permissionDenied: $permissionDenied,
+                             showSettings: $showSettings)
+                        .tabItem { Label("Talk", systemImage: "waveform") }
+
+                    ChatsView(store: call.sessions)
+                        .tabItem { Label("Chats", systemImage: "bubble.left.and.bubble.right.fill") }
+                }
+                .tint(Palette.hotPink)
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
         .task {
             // A bundled model loads immediately — no setup step on first launch.
             if model == nil { model = ModelLocator.current() }
@@ -63,6 +68,190 @@ struct RootView: View {
     }
 }
 
+// MARK: - Talk
+
+private struct TalkView: View {
+    @ObservedObject var call: CallViewModel
+    @Binding var permissionDenied: Bool
+    @Binding var showSettings: Bool
+
+    var body: some View {
+        ZStack {
+            Palette.background.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                header
+                orbArea
+                statusLine
+                LiveTranscript(call: call)
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            Button { call.reset() } label: {
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Palette.hotPink)
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(Palette.card.opacity(0.85)))
+            }
+            .accessibilityLabel("Start a new conversation")
+
+            Spacer()
+
+            VStack(spacing: 2) {
+                Text("Mira")
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .foregroundStyle(Palette.ink)
+                Text(call.modelDescription.isEmpty ? "on this phone" : call.modelDescription)
+                    .font(.caption2)
+                    .foregroundStyle(Palette.inkFaint)
+            }
+
+            Spacer()
+
+            Button { showSettings = true } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Palette.hotPink)
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(Palette.card.opacity(0.85)))
+            }
+            .accessibilityLabel("Settings")
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
+
+    /// Tapping the orb is the whole interaction: start a turn, end a turn,
+    /// or cut Mira off while she's talking.
+    private var orbArea: some View {
+        Button {
+            switch call.phase {
+            case .listening: call.listener.finishTurn()
+            case .speaking, .thinking: call.interrupt()
+            default: call.beginListening()
+            }
+        } label: {
+            VoiceOrb(phase: call.phase, level: call.listener.audioLevel)
+        }
+        .buttonStyle(.plain)
+        .disabled(permissionDenied)
+        .accessibilityLabel(orbLabel)
+        .padding(.vertical, 4)
+    }
+
+    private var orbLabel: String {
+        switch call.phase {
+        case .listening: return "Stop talking"
+        case .speaking:  return "Interrupt Mira"
+        case .thinking:  return "Cancel"
+        default:         return "Talk to Mira"
+        }
+    }
+
+    private var statusLine: some View {
+        Group {
+            switch call.phase {
+            case .loading(let message):
+                pill(message, icon: "hourglass", tint: Palette.lilac)
+            case .listening:
+                pill(call.listener.partialText.isEmpty ? "Listening…" : call.listener.partialText,
+                     icon: "waveform", tint: Palette.hotPink)
+            case .thinking:
+                pill("Thinking…", icon: "sparkles", tint: Palette.lilac)
+            case .speaking:
+                pill("Tap to jump in", icon: "speaker.wave.2.fill", tint: Palette.sherbet)
+            case .failed(let message):
+                pill(message, icon: "exclamationmark.triangle.fill", tint: Palette.alert)
+            case .idle:
+                pill(permissionDenied ? "Microphone is off — turn it on in Settings" : "Tap to talk",
+                     icon: permissionDenied ? "mic.slash.fill" : "hand.tap.fill",
+                     tint: Palette.inkFaint)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 10)
+        .animation(.easeInOut(duration: 0.22), value: call.phase)
+    }
+
+    private func pill(_ text: String, icon: String, tint: Color) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(tint == Palette.sherbet ? Palette.deepRose : tint)
+            Text(text)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Palette.ink)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 9)
+        .background(
+            Capsule().fill(Palette.card.opacity(0.9))
+                .shadow(color: Palette.shadow, radius: 8, y: 3)
+        )
+    }
+}
+
+// MARK: - Live transcript
+
+private struct LiveTranscript: View {
+    @ObservedObject var call: CallViewModel
+
+    private var spoken: [ChatMessage] { call.transcript.filter { $0.role != .system } }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    if spoken.isEmpty && call.liveMiraText.isEmpty {
+                        opener
+                    }
+                    ForEach(spoken) { message in
+                        ChatBubble(text: message.text, isMira: message.role == .assistant)
+                            .id(message.id)
+                    }
+                    if !call.liveMiraText.isEmpty {
+                        ChatBubble(text: call.liveMiraText, isMira: true).id("live")
+                    }
+                    if call.phase == .listening, !call.listener.partialText.isEmpty {
+                        ChatBubble(text: call.listener.partialText, isMira: false)
+                            .opacity(0.5).id("partial")
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.bottom, 16)
+            }
+            .onChange(of: call.transcript.count) { _, _ in
+                withAnimation { proxy.scrollTo(call.transcript.last?.id, anchor: .bottom) }
+            }
+            .onChange(of: call.liveMiraText) { _, _ in
+                withAnimation { proxy.scrollTo("live", anchor: .bottom) }
+            }
+        }
+    }
+
+    /// The transcript is empty on every launch; say something rather than
+    /// leaving half the screen blank.
+    private var opener: some View {
+        VStack(spacing: 6) {
+            Text("Say hello")
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .foregroundStyle(Palette.inkSoft)
+            Text("Everything stays on this phone.")
+                .font(.caption)
+                .foregroundStyle(Palette.inkFaint)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 26)
+    }
+}
+
 // MARK: - Settings
 
 private struct SettingsView: View {
@@ -73,39 +262,62 @@ private struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section("Model") {
-                    LabeledContent("Source",
-                                   value: (model?.isBundled ?? false) ? "Built into the app" : "Imported")
-                    LabeledContent("Details", value: call.modelDescription)
-                    LabeledContent("Voice", value: call.speaker.describedVoice)
-                    LabeledContent("Storage used", value: ModelLocator.diskUsageDescription())
-                }
+            ZStack {
+                Palette.background.ignoresSafeArea()
+                Form {
+                    Section("Model") {
+                        row("Source", (model?.isBundled ?? false) ? "Built in" : "Imported")
+                        row("Details", call.modelDescription)
+                        row("Voice", call.speaker.describedVoice)
+                        row("Storage used", ModelLocator.diskUsageDescription())
+                    }
+                    .listRowBackground(Palette.card)
 
-                Section {
-                    Button("Replace with a different model…") { showImporter = true; dismiss() }
-                    if model?.isBundled == false {
-                        Button("Remove imported model", role: .destructive) {
-                            ModelLocator.removeImported()
-                            model = ModelLocator.current()
-                            if let model { call.load(modelURL: model.url) }
+                    Section {
+                        Button("Replace with a different model…") { showImporter = true; dismiss() }
+                            .foregroundStyle(Palette.hotPink)
+                        if model?.isBundled == false {
+                            Button("Remove imported model", role: .destructive) {
+                                ModelLocator.removeImported()
+                                model = ModelLocator.current()
+                                if let model { call.load(modelURL: model.url) }
+                                dismiss()
+                            }
+                        }
+                        Button("Free extracted cache") {
+                            ModelLocator.clearExtractedCache()
                             dismiss()
                         }
+                        .foregroundStyle(Palette.hotPink)
+                    } footer: {
+                        Text("Mira runs entirely on this phone. Nothing you say leaves it.")
+                            .foregroundStyle(Palette.inkSoft)
                     }
-                    Button("Free extracted cache") {
-                        ModelLocator.clearExtractedCache()
-                        dismiss()
-                    }
-                } footer: {
-                    Text("Mira runs entirely on this device. Nothing you say leaves the phone.")
-                }
+                    .listRowBackground(Palette.card)
 
-                Section("Conversation") {
-                    Toggle("Keep listening after Mira replies", isOn: $call.handsFree)
+                    Section("Conversation") {
+                        Toggle("Keep listening after Mira replies", isOn: $call.handsFree)
+                            .tint(Palette.hotPink)
+                    }
+                    .listRowBackground(Palette.card)
                 }
+                .scrollContentBackground(.hidden)
             }
             .navigationTitle("Settings")
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbarBackground(Palette.cream, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }.foregroundStyle(Palette.hotPink)
+                }
+            }
+        }
+    }
+
+    private func row(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label).foregroundStyle(Palette.ink)
+            Spacer()
+            Text(value).foregroundStyle(Palette.inkSoft)
         }
     }
 }
@@ -116,223 +328,44 @@ private struct ImportPrompt: View {
     @Binding var showImporter: Bool
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 22) {
             Spacer()
-            Image(systemName: "waveform.circle")
-                .font(.system(size: 76, weight: .thin))
-                .foregroundStyle(.white.opacity(0.9))
+            ZStack {
+                Circle()
+                    .fill(LinearGradient(colors: [Palette.sherbet, Palette.hotPink],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: 120, height: 120)
+                    .shadow(color: Palette.hotPink.opacity(0.3), radius: 22, y: 8)
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 44, weight: .medium))
+                    .foregroundStyle(.white)
+            }
             Text("Mira")
-                .font(.system(size: 40, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
-            Text("No model found in this build.\nAdd **mira.mdlo** to the app target, or import one now.")
+                .font(.system(size: 40, weight: .bold, design: .rounded))
+                .foregroundStyle(Palette.ink)
+            Text("Pick a model to get started.\nShe runs entirely on this phone.")
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.white.opacity(0.65))
+                .foregroundStyle(Palette.inkSoft)
                 .padding(.horizontal, 40)
             Button {
                 showImporter = true
             } label: {
                 Text("Choose model file")
-                    .font(.headline)
-                    .padding(.horizontal, 28).padding(.vertical, 14)
-                    .background(Capsule().fill(.white.opacity(0.15)))
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .padding(.horizontal, 30).padding(.vertical, 15)
+                    .background(
+                        Capsule().fill(LinearGradient(colors: [Palette.hotPink, Palette.deepRose],
+                                                      startPoint: .leading, endPoint: .trailing))
+                            .shadow(color: Palette.hotPink.opacity(0.35), radius: 12, y: 5)
+                    )
                     .foregroundStyle(.white)
             }
             Spacer()
             Text("Or put mira.mdlo in Files ▸ On My iPhone ▸ Mira\nand reopen the app.")
                 .font(.footnote)
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.white.opacity(0.4))
+                .foregroundStyle(Palette.inkFaint)
                 .padding(.bottom, 30)
-        }
-    }
-}
-
-// MARK: - Call
-
-private struct CallView: View {
-    @ObservedObject var call: CallViewModel
-    @Binding var permissionDenied: Bool
-    @Binding var showSettings: Bool
-
-    var body: some View {
-        VStack(spacing: 0) {
-            header
-            TranscriptView(call: call)
-            statusLine
-            controls
-        }
-    }
-
-    private var header: some View {
-        HStack {
-            Spacer()
-            VStack(spacing: 4) {
-                Text("Mira").font(.system(size: 26, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
-                Text(call.modelDescription.isEmpty ? "on this device" : call.modelDescription)
-                    .font(.caption).foregroundStyle(.white.opacity(0.45))
-            }
-            Spacer()
-        }
-        .overlay(alignment: .trailing) {
-            Button { showSettings = true } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.55))
-            }
-            .padding(.trailing, 22)
-            .accessibilityLabel("Settings")
-        }
-        .padding(.top, 16).padding(.bottom, 10)
-    }
-
-    private var statusLine: some View {
-        Group {
-            switch call.phase {
-            case .loading(let message):
-                Label(message, systemImage: "hourglass")
-            case .listening:
-                Label(call.listener.partialText.isEmpty ? "Listening…" : call.listener.partialText,
-                      systemImage: "mic.fill")
-            case .thinking:
-                Label("Thinking…", systemImage: "ellipsis.bubble")
-            case .speaking:
-                Label("Mira's talking — tap to jump in", systemImage: "speaker.wave.2.fill")
-            case .failed(let message):
-                Label(message, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
-            case .idle:
-                Label(permissionDenied ? "Microphone access is off — enable it in Settings"
-                                       : "Tap to talk",
-                      systemImage: permissionDenied ? "mic.slash" : "hand.tap")
-            }
-        }
-        .font(.callout)
-        .foregroundStyle(.white.opacity(0.75))
-        .lineLimit(2)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 24).padding(.vertical, 12)
-        .animation(.easeInOut(duration: 0.2), value: call.phase)
-    }
-
-    private var controls: some View {
-        HStack(spacing: 34) {
-            Button { call.reset() } label: {
-                controlIcon("arrow.counterclockwise", tint: .white.opacity(0.7))
-            }
-            .accessibilityLabel("Start a new conversation")
-
-            TalkButton(call: call, disabled: permissionDenied)
-
-            Button { call.endCall() } label: {
-                controlIcon("xmark", tint: .red.opacity(0.85))
-            }
-            .accessibilityLabel("End call")
-        }
-        .padding(.bottom, 34)
-    }
-
-    private func controlIcon(_ name: String, tint: Color) -> some View {
-        Image(systemName: name)
-            .font(.system(size: 20, weight: .medium))
-            .frame(width: 52, height: 52)
-            .background(Circle().fill(.white.opacity(0.10)))
-            .foregroundStyle(tint)
-    }
-}
-
-/// Big central button: pulses with your voice while listening.
-private struct TalkButton: View {
-    @ObservedObject var call: CallViewModel
-    let disabled: Bool
-    @State private var pulse = false
-
-    private var isListening: Bool { call.phase == .listening }
-    private var isSpeaking: Bool { call.phase == .speaking }
-
-    var body: some View {
-        Button {
-            switch call.phase {
-            case .listening: call.listener.finishTurn()
-            case .speaking, .thinking: call.interrupt()
-            default: call.beginListening()
-            }
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(isListening ? Color.green.opacity(0.28) : Color.white.opacity(0.14))
-                    .frame(width: 96, height: 96)
-                    .scaleEffect(isListening ? 1 + CGFloat(call.listener.audioLevel) * 0.35 : 1)
-                    .animation(.easeOut(duration: 0.12), value: call.listener.audioLevel)
-
-                if isSpeaking {
-                    Circle().stroke(.white.opacity(0.35), lineWidth: 2)
-                        .frame(width: 110, height: 110)
-                        .scaleEffect(pulse ? 1.08 : 0.96)
-                        .opacity(pulse ? 0.2 : 0.7)
-                        .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: pulse)
-                }
-
-                Image(systemName: isSpeaking ? "hand.raised.fill"
-                                             : (isListening ? "waveform" : "mic.fill"))
-                    .font(.system(size: 32, weight: .medium))
-                    .foregroundStyle(.white)
-            }
-        }
-        .disabled(disabled)
-        .onAppear { pulse = true }
-        .accessibilityLabel(isListening ? "Stop talking" : (isSpeaking ? "Interrupt Mira" : "Talk to Mira"))
-    }
-}
-
-// MARK: - Transcript
-
-private struct TranscriptView: View {
-    @ObservedObject var call: CallViewModel
-
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
-                    ForEach(call.transcript.filter { $0.role != .system }) { message in
-                        Bubble(text: message.text, isMira: message.role == .assistant)
-                            .id(message.id)
-                    }
-                    if !call.liveMiraText.isEmpty {
-                        Bubble(text: call.liveMiraText, isMira: true).id("live")
-                    }
-                    if case .listening = call.phase, !call.listener.partialText.isEmpty {
-                        Bubble(text: call.listener.partialText, isMira: false)
-                            .opacity(0.55).id("partial")
-                    }
-                }
-                .padding(.horizontal, 20).padding(.vertical, 8)
-            }
-            .onChange(of: call.transcript.count) { _, _ in
-                withAnimation { proxy.scrollTo(call.transcript.last?.id, anchor: .bottom) }
-            }
-            .onChange(of: call.liveMiraText) { _, _ in
-                withAnimation { proxy.scrollTo("live", anchor: .bottom) }
-            }
-        }
-    }
-}
-
-private struct Bubble: View {
-    let text: String
-    let isMira: Bool
-
-    var body: some View {
-        HStack {
-            if !isMira { Spacer(minLength: 40) }
-            Text(text)
-                .foregroundStyle(.white.opacity(isMira ? 0.95 : 0.85))
-                .padding(.horizontal, 16).padding(.vertical, 11)
-                .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(isMira ? Color.white.opacity(0.13) : Color.blue.opacity(0.42))
-                )
-            if isMira { Spacer(minLength: 40) }
         }
     }
 }

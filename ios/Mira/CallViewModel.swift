@@ -21,12 +21,18 @@ final class CallViewModel: ObservableObject {
     @Published var handsFree = true
 
     let listener = SpeechListener()
+    /// Every conversation is saved so the Chats tab can scroll back through them.
+    let sessions = SessionStore()
     /// Kokoro when this build bundled it, Apple's synthesizer otherwise.
     let speaker: any VoiceOutput
 
     private var engine: LlamaEngine?
     private var chat: MDLOFile.ChatConfig?
     private var generation: Task<Void, Never>?
+
+    /// The conversation being recorded. Cleared by `reset()`, so starting a
+    /// new chat starts a new entry rather than extending the last one.
+    private var activeSession: ChatSession?
 
     /// Conversation turns kept in the prompt. Older turns fall off so the
     /// context window never overflows mid-call.
@@ -131,6 +137,16 @@ final class CallViewModel: ObservableObject {
             transcript = [ChatMessage(role: .system, text: systemPrompt)]
         }
         liveMiraText = ""
+        activeSession = nil
+    }
+
+    /// Appends to the saved conversation, creating one on the first turn.
+    private func remember(_ text: String, isMira: Bool) {
+        var session = activeSession
+            ?? ChatSession(id: UUID(), startedAt: Date(), messages: [])
+        session.messages.append(ChatSession.Turn(isMira: isMira, text: text))
+        activeSession = session
+        sessions.record(session)
     }
 
     func send(_ text: String) {
@@ -138,6 +154,7 @@ final class CallViewModel: ObservableObject {
         listener.stop()
 
         transcript.append(ChatMessage(role: .user, text: text))
+        remember(text, isMira: false)
         trimHistory()
         liveMiraText = ""
         phase = .thinking
@@ -193,6 +210,7 @@ final class CallViewModel: ObservableObject {
                 let reply = self.liveMiraText.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !reply.isEmpty {
                     self.transcript.append(ChatMessage(role: .assistant, text: reply))
+                    self.remember(reply, isMira: true)
                 }
                 self.liveMiraText = ""
                 if !spokenAnything { self.phase = .idle }
