@@ -16,10 +16,26 @@ final class SpeechListener: NSObject, ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var silenceTimer: Timer?
-    private var onFinal: ((String) -> Void)?
+    private var onTurn: ((String) -> Void)?
+
+    enum ListenError: LocalizedError {
+        case recognizerUnavailable
+
+        var errorDescription: String? {
+            switch self {
+            case .recognizerUnavailable:
+                return "Speech recognition isn't available right now. Check Settings ▸ General ▸ Keyboard ▸ Enable Dictation."
+            }
+        }
+    }
 
     /// How long a pause ends the user's turn.
     var endOfTurnSilence: TimeInterval = 1.1
+
+    /// How long to wait for a first word before giving the turn back. Without
+    /// this the turn only ever ended on a recognition result, so tapping to
+    /// talk and staying quiet left the app listening forever.
+    var openingSilence: TimeInterval = 6
 
     static func requestPermissions() async -> Bool {
         let speech = await withCheckedContinuation { continuation in
@@ -31,9 +47,15 @@ final class SpeechListener: NSObject, ObservableObject {
         }
     }
 
-    func start(onFinal: @escaping (String) -> Void) throws {
+    /// Starts a turn. `onTurn` is called exactly once when the turn ends —
+    /// with the recognized text, or with an empty string if nothing was heard,
+    /// so the caller always gets its state machine back.
+    func start(onTurn: @escaping (String) -> Void) throws {
         guard !isListening else { return }
-        self.onFinal = onFinal
+        guard let recognizer, recognizer.isAvailable else {
+            throw ListenError.recognizerUnavailable
+        }
+        self.onTurn = onTurn
         partialText = ""
 
         let session = AVAudioSession.sharedInstance()
@@ -58,14 +80,17 @@ final class SpeechListener: NSObject, ObservableObject {
         engine.prepare()
         try engine.start()
         isListening = true
+        restartSilenceTimer(after: openingSilence)
 
-        task = recognizer?.recognitionTask(with: request) { [weak self] result, error in
+        task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
             Task { @MainActor in
                 if let result {
                     self.partialText = result.bestTranscription.formattedString
-                    self.restartSilenceTimer()
+                    self.restartSilenceTimer(after: self.endOfTurnSilence)
                 }
+                // A recognition error ends the turn too — most often it is
+                // simply "no speech detected", which is an empty turn.
                 if error != nil || (result?.isFinal ?? false) {
                     self.finishTurn()
                 }
@@ -73,17 +98,19 @@ final class SpeechListener: NSObject, ObservableObject {
         }
     }
 
-    /// Stops listening and delivers whatever was heard.
+    /// Stops listening and delivers whatever was heard — including nothing.
     func finishTurn() {
         guard isListening else { return }
         let text = partialText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let deliver = onTurn
         stop()
-        if !text.isEmpty { onFinal?(text) }
+        deliver?(text)
     }
 
     func stop() {
         silenceTimer?.invalidate()
         silenceTimer = nil
+        onTurn = nil
         engine.inputNode.removeTap(onBus: 0)
         if engine.isRunning { engine.stop() }
         request?.endAudio()
@@ -94,9 +121,9 @@ final class SpeechListener: NSObject, ObservableObject {
         audioLevel = 0
     }
 
-    private func restartSilenceTimer() {
+    private func restartSilenceTimer(after interval: TimeInterval) {
         silenceTimer?.invalidate()
-        silenceTimer = Timer.scheduledTimer(withTimeInterval: endOfTurnSilence, repeats: false) { [weak self] _ in
+        silenceTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             Task { @MainActor in self?.finishTurn() }
         }
     }

@@ -175,6 +175,21 @@ on older devices, prefer 360M–0.5B.
 
 ## Troubleshooting
 
+**The file picker shows `mira.mdlo` greyed out** — you're on a build from
+before the `.mdlo` document type was declared in `Info.plist`. Rebuild. Two
+other ways in on a current build: put the file in **Files ▸ On My iPhone ▸
+Mira** and reopen the app, or share it to Mira from the Files share sheet.
+
+**Tapping to talk never ends the turn** — also fixed by rebuilding: the turn
+used to end only on a recognition result, so silence left it listening
+indefinitely. It now gives up after `SpeechListener.openingSilence` (6 s) if
+it hears nothing at all.
+
+**"Speech recognition isn't available right now"** — dictation is off. Settings
+▸ General ▸ Keyboard ▸ Enable Dictation. Speech-to-text runs on-device when the
+device supports it for your locale; otherwise iOS falls back to its server
+recognizer, which needs a network connection.
+
 **"That file isn't an MDLO model"** — you picked the GGUF instead of the
 `.mdlo`, or the download was incomplete.
 

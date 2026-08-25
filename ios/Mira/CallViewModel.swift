@@ -82,11 +82,20 @@ final class CallViewModel: ObservableObject {
         speaker.stop()
         do {
             try listener.start { [weak self] text in
-                Task { @MainActor in self?.send(text) }
+                Task { @MainActor in
+                    guard let self else { return }
+                    // An empty turn means nothing was recognized. Hand the
+                    // button back rather than sitting on "Listening…".
+                    if text.isEmpty {
+                        self.phase = .idle
+                    } else {
+                        self.send(text)
+                    }
+                }
             }
             phase = .listening
         } catch {
-            phase = .failed("Microphone unavailable: \(error.localizedDescription)")
+            phase = .failed(error.localizedDescription)
         }
     }
 

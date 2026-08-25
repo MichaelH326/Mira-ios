@@ -40,19 +40,25 @@ struct RootView: View {
             permissionDenied = !(await SpeechListener.requestPermissions())
         }
         .fileImporter(isPresented: $showImporter,
-                      allowedContentTypes: [.data],
+                      allowedContentTypes: ModelLocator.pickableTypes,
                       allowsMultipleSelection: false) { result in
             guard case .success(let urls) = result, let picked = urls.first else { return }
-            do {
-                let installed = try ModelLocator.install(from: picked)
-                model = .imported(installed)
-                call.load(modelURL: installed)
-            } catch {
-                call.reportFailure("Couldn't import that file: \(error.localizedDescription)")
-            }
+            importModel(from: picked)
         }
+        // A .mdlo shared to Mira from Files or another app.
+        .onOpenURL { url in importModel(from: url) }
         .sheet(isPresented: $showSettings) {
             SettingsView(call: call, model: $model, showImporter: $showImporter)
+        }
+    }
+
+    private func importModel(from url: URL) {
+        do {
+            let installed = try ModelLocator.install(from: url)
+            model = .imported(installed)
+            call.load(modelURL: installed)
+        } catch {
+            call.reportFailure("Couldn't import that file: \(error.localizedDescription)")
         }
     }
 }
@@ -131,7 +137,7 @@ private struct ImportPrompt: View {
                     .foregroundStyle(.white)
             }
             Spacer()
-            Text("Download mira.mdlo from your GitHub Releases,\nthen save it to Files on this device.")
+            Text("Or put mira.mdlo in Files ▸ On My iPhone ▸ Mira\nand reopen the app.")
                 .font(.footnote)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white.opacity(0.4))

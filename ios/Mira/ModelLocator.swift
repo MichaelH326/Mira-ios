@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 /// Decides which `mira.mdlo` the app should run.
 ///
@@ -48,6 +49,20 @@ enum ModelLocator {
         }
     }
 
+    /// Types the document picker will enable. `.mdlo` is declared in
+    /// Info.plist, but a file copied onto the device before the app was
+    /// installed can still carry a generic type, so the broader types stay in
+    /// the list — otherwise the model shows up greyed out and unselectable.
+    static var pickableTypes: [UTType] {
+        var types: [UTType] = []
+        if let declared = UTType("com.mira.voice.mdlo") { types.append(declared) }
+        if let byExtension = UTType(filenameExtension: "mdlo"),
+           !types.contains(byExtension) { types.append(byExtension) }
+        types.append(.data)
+        types.append(.item)
+        return types
+    }
+
     static func bundledModel() -> URL? {
         Bundle.main.url(forResource: "mira", withExtension: "mdlo")
     }
@@ -70,6 +85,13 @@ enum ModelLocator {
         guard let destination = documentsModelURL() else {
             throw CocoaError(.fileNoSuchFile)
         }
+        // Files ▸ On My iPhone ▸ Mira writes straight into Documents, so the
+        // picked file can already *be* the destination. Copying would delete
+        // it first and then have nothing left to copy.
+        if source.standardizedFileURL == destination.standardizedFileURL {
+            return destination
+        }
+
         let scoped = source.startAccessingSecurityScopedResource()
         defer { if scoped { source.stopAccessingSecurityScopedResource() } }
 

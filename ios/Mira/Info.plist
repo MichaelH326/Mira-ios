@@ -47,5 +47,51 @@
 	<array>
 		<string>audio</string>
 	</array>
+
+	<!-- Without a declared type, .mdlo has no UTI the document picker
+	     recognises, so every file shows greyed out. -->
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.mira.voice.mdlo</string>
+			<key>UTTypeDescription</key>
+			<string>Mira Model</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mdlo</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+
+	<!-- Lets Mira appear in the share sheet for a .mdlo file. -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Mira Model</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.mira.voice.mdlo</string>
+			</array>
+		</dict>
+	</array>
+
+	<!-- Third way in: drop mira.mdlo straight into Mira's folder in Files. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 </dict>
 </plist>
