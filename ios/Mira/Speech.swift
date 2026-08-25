@@ -189,36 +189,33 @@ final class SpeechListener: NSObject, ObservableObject {
     }
 }
 
-/// Speaks Mira's replies one sentence at a time.
-///
-/// Sentences arrive while the model is still generating, so "finished
-/// speaking" means *both* that the synthesizer has drained and that no more
-/// sentences are coming — otherwise the gap between two sentences would look
-/// like the end of Mira's turn and hand the microphone back mid-reply.
+/// Apple's built-in synthesizer. The fallback voice: always available, and
+/// noticeably better if the user has downloaded a Premium voice under
+/// Settings ▸ Accessibility ▸ Spoken Content ▸ Voices.
 @MainActor
-final class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
-
-    @Published private(set) var isSpeaking = false
+final class Speaker: NSObject, VoiceOutput, AVSpeechSynthesizerDelegate {
 
     private let synthesizer = AVSpeechSynthesizer()
-    private var outstanding = 0
-    private var expectingMore = false
-    var onFinishedSpeaking: (() -> Void)?
+    private let queue = SpeechQueueState()
+
+    var onFinishedSpeaking: (() -> Void)? {
+        get { queue.onDrained }
+        set { queue.onDrained = newValue }
+    }
+
+    var describedVoice: String {
+        Self.preferredVoice().map { "Apple · \($0.name)" } ?? "Apple"
+    }
 
     override init() {
         super.init()
         synthesizer.delegate = self
     }
 
-    /// Call with `true` when a reply starts generating and `false` once the
-    /// last sentence has been enqueued.
     func setExpectingMore(_ expecting: Bool) {
-        expectingMore = expecting
-        if !expecting { notifyIfDrained() }
+        queue.setExpectingMore(expecting)
     }
 
-    /// Queues one sentence. Called as each sentence completes during
-    /// generation, so speech starts before the full reply exists.
     func enqueue(_ sentence: String) {
         let spoken = SpeechText.forSpeaking(sentence)
         guard !spoken.isEmpty else { return }
@@ -228,27 +225,13 @@ final class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
         utterance.rate = 0.52          // just above default; conversational
         utterance.pitchMultiplier = 1.05
         utterance.postUtteranceDelay = 0.05
-        outstanding += 1
-        isSpeaking = true
+        queue.added()
         synthesizer.speak(utterance)
     }
 
     func stop() {
         synthesizer.stopSpeaking(at: .immediate)
-        outstanding = 0
-        expectingMore = false
-        isSpeaking = false
-    }
-
-    private func utteranceEnded() {
-        outstanding = max(0, outstanding - 1)
-        notifyIfDrained()
-    }
-
-    private func notifyIfDrained() {
-        guard outstanding == 0, !expectingMore, isSpeaking else { return }
-        isSpeaking = false
-        onFinishedSpeaking?()
+        queue.reset()
     }
 
     private static func preferredVoice() -> AVSpeechSynthesisVoice? {
@@ -261,14 +244,14 @@ final class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
                                        didFinish utterance: AVSpeechUtterance) {
-        Task { @MainActor in self.utteranceEnded() }
+        Task { @MainActor in self.queue.finishedOne() }
     }
 
     // Cancelled utterances never report `didFinish`; without this the
     // outstanding count would never return to zero after an interruption.
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
                                        didCancel utterance: AVSpeechUtterance) {
-        Task { @MainActor in self.utteranceEnded() }
+        Task { @MainActor in self.queue.finishedOne() }
     }
 }
 

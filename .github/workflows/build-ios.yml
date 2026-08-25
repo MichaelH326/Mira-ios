@@ -22,6 +22,11 @@ on:
         type: choice
         default: "true"
         options: ["true", "false"]
+      bundle_tts:
+        description: "Bundle the Kokoro neural voice (~185MB) — 'false' uses Apple's voice"
+        type: choice
+        default: "true"
+        options: ["true", "false"]
   push:
     paths:
       - "ios/**"
@@ -38,6 +43,9 @@ jobs:
       LLAMA_REF: ${{ github.event.inputs.llama_ref || 'master' }}
       MODEL_SOURCE: ${{ github.event.inputs.model_source || 'latest-release' }}
       PUBLISH_RELEASE: ${{ github.event.inputs.publish_release || 'true' }}
+      BUNDLE_TTS: ${{ github.event.inputs.bundle_tts || 'true' }}
+      SHERPA_REF: v1.13.6
+      KOKORO_MODEL: kokoro-int8-multi-lang-v1_1
     defaults:
       run:
         working-directory: ios
@@ -83,6 +91,61 @@ jobs:
           ls Frameworks/llama.xcframework
           test -d Frameworks/llama.xcframework/ios-arm64 \
             || { echo "no ios-arm64 slice in llama.xcframework"; exit 1; }
+
+      # sherpa-onnx runs the Kokoro voice. build-ios.sh downloads a prebuilt
+      # onnxruntime and compiles sherpa-onnx for device + both simulator
+      # architectures, so the cold build is slow; the cache makes it once.
+      - name: Cache sherpa-onnx.xcframework
+        id: cache-sherpa
+        uses: actions/cache@v4
+        with:
+          path: ios/Frameworks/sherpa-onnx-build
+          key: sherpa-onnx-${{ env.SHERPA_REF }}-${{ runner.os }}-v1
+
+      - name: Build sherpa-onnx.xcframework
+        if: steps.cache-sherpa.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          brew list wget >/dev/null 2>&1 || brew install wget
+          rm -rf /tmp/sherpa-onnx
+          git clone https://github.com/k2-fsa/sherpa-onnx /tmp/sherpa-onnx
+          cd /tmp/sherpa-onnx
+          git checkout "$SHERPA_REF"
+          ./build-ios.sh
+          OUT="$GITHUB_WORKSPACE/ios/Frameworks/sherpa-onnx-build"
+          rm -rf "$OUT" && mkdir -p "$OUT"
+          cp -R build-ios/sherpa-onnx.xcframework "$OUT/"
+          # build-ios.sh drops the onnxruntime xcframework beside its own,
+          # under a version directory reached through a symlink.
+          cp -RL build-ios/ios-onnxruntime/onnxruntime.xcframework "$OUT/"
+
+      - name: Stage the frameworks
+        run: |
+          set -euo pipefail
+          for f in sherpa-onnx onnxruntime; do
+            rm -rf "Frameworks/$f.xcframework"
+            cp -R "Frameworks/sherpa-onnx-build/$f.xcframework" Frameworks/
+            test -d "Frameworks/$f.xcframework/ios-arm64" \
+              || { echo "no ios-arm64 slice in $f.xcframework"; ls "Frameworks/$f.xcframework"; exit 1; }
+          done
+
+      - name: Fetch the Kokoro voice
+        if: ${{ env.BUNDLE_TTS != 'false' }}
+        run: |
+          set -euo pipefail
+          curl -fSL --retry 3 -o /tmp/kokoro.tar.bz2 \
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/${KOKORO_MODEL}.tar.bz2"
+          rm -rf /tmp/kokoro && mkdir -p /tmp/kokoro
+          tar xjf /tmp/kokoro.tar.bz2 -C /tmp/kokoro
+          SRC="/tmp/kokoro/${KOKORO_MODEL}"
+          DEST=Resources/kokoro
+          rm -rf "$DEST" && mkdir -p "$DEST"
+          # Only what an English voice reads. Dropping the Chinese jieba dict,
+          # the zh lexicon/FSTs and the en-GB lexicon saves about 22MB.
+          cp "$SRC/model.int8.onnx" "$SRC/voices.bin" "$SRC/tokens.txt" \
+             "$SRC/lexicon-us-en.txt" "$SRC/LICENSE" "$DEST/"
+          cp -R "$SRC/espeak-ng-data" "$DEST/"
+          du -sh "$DEST"
 
       - name: Fetch mira.mdlo
         if: ${{ env.MODEL_SOURCE != 'none' }}
@@ -148,6 +211,11 @@ jobs:
           test -f "$APP/Mira" || { echo "missing app binary"; exit 1; }
           test -d "$APP/Frameworks" || { echo "missing embedded frameworks"; exit 1; }
           ls "$APP/Frameworks"
+          if [ "$BUNDLE_TTS" != "false" ]; then
+            test -f "$APP/kokoro/model.int8.onnx" || { echo "Kokoro model missing from bundle"; exit 1; }
+            test -d "$APP/kokoro/espeak-ng-data" || { echo "espeak-ng-data flattened or missing"; exit 1; }
+            echo "Kokoro voice bundled: $(du -sh "$APP/kokoro" | cut -f1)"
+          fi
           if [ -f "$APP/mira.mdlo" ]; then
             echo "model bundled: $(du -h "$APP/mira.mdlo" | cut -f1)"
           else

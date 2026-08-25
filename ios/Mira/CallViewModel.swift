@@ -21,7 +21,8 @@ final class CallViewModel: ObservableObject {
     @Published var handsFree = true
 
     let listener = SpeechListener()
-    let speaker = Speaker()
+    /// Kokoro when this build bundled it, Apple's synthesizer otherwise.
+    let speaker: any VoiceOutput
 
     private var engine: LlamaEngine?
     private var chat: MDLOFile.ChatConfig?
@@ -32,6 +33,11 @@ final class CallViewModel: ObservableObject {
     private let maxTurns = 16
 
     init() {
+        if let kokoro = KokoroVoice.makeIfAvailable() {
+            speaker = kokoro
+        } else {
+            speaker = Speaker()
+        }
         speaker.onFinishedSpeaking = { [weak self] in
             guard let self, self.phase == .speaking else { return }
             if self.handsFree { self.beginListening() } else { self.phase = .idle }

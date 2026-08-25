@@ -78,6 +78,7 @@ private struct SettingsView: View {
                     LabeledContent("Source",
                                    value: (model?.isBundled ?? false) ? "Built into the app" : "Imported")
                     LabeledContent("Details", value: call.modelDescription)
+                    LabeledContent("Voice", value: call.speaker.describedVoice)
                     LabeledContent("Storage used", value: ModelLocator.diskUsageDescription())
                 }
 

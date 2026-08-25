@@ -4,10 +4,14 @@ ios/build/
 ios/Payload/
 *.ipa
 
-# Too large for git; CI downloads the model from Releases and builds the
-# framework from source.
+# Too large for git; CI downloads the models from Releases and builds the
+# frameworks from source.
 ios/Resources/mira.mdlo
+ios/Resources/kokoro/
 ios/Frameworks/llama.xcframework/
+ios/Frameworks/sherpa-onnx.xcframework/
+ios/Frameworks/onnxruntime.xcframework/
+ios/Frameworks/sherpa-onnx-build/
 
 # macOS / Xcode noise
 .DS_Store

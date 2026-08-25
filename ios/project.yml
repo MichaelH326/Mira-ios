@@ -32,6 +32,13 @@ targets:
         buildPhase: resources
         excludes:
           - ".gitkeep"
+          - "kokoro"
+      # A folder reference, not a group: espeak-ng-data is read by path at
+      # runtime, so the directory structure has to survive into the bundle.
+      - path: Resources/kokoro
+        type: folder
+        optional: true
+        buildPhase: resources
 
     dependencies:
       # Produced by llama.cpp's build-xcframework.sh — see the build workflow.
@@ -40,6 +47,12 @@ targets:
       - framework: Frameworks/llama.xcframework
         embed: true
         codeSign: false
+      # sherpa-onnx and onnxruntime ship as static archives wrapped in
+      # framework bundles — linked, never embedded.
+      - framework: Frameworks/sherpa-onnx.xcframework
+        embed: false
+      - framework: Frameworks/onnxruntime.xcframework
+        embed: false
 
     settings:
       base:

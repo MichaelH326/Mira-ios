@@ -10,6 +10,9 @@ and speech synthesis are all on-device.
 - Replies are spoken **sentence by sentence as they generate**, so she starts
   talking before the full answer exists — the same trick `voice/run_mira.py` uses
 - Tap while she's talking to interrupt (normal call behavior)
+- Speaks through **Kokoro-82M**, a neural voice running on the phone via
+  sherpa-onnx — not Apple's synthesizer. Falls back to `AVSpeechSynthesizer`
+  when a build ships without the model
 - Numbers are spoken as words ("fifteen to twenty minutes"), matching the
   training persona
 - Conversation history is carried into every turn and trimmed to fit the context
@@ -21,8 +24,8 @@ and speech synthesis are all on-device.
 ios/
   project.yml                     XcodeGen spec (no binary .xcodeproj in git)
   Mira/                           Swift sources + Info.plist
-  Frameworks/                     llama.xcframework — built and cached by CI
-  Resources/                      mira.mdlo — downloaded from a Release by CI
+  Frameworks/                     llama + sherpa-onnx + onnxruntime, built by CI
+  Resources/                      mira.mdlo and kokoro/ — fetched by CI
 ```
 
 Neither `llama.xcframework` nor `mira.mdlo` is committed: the framework is
@@ -37,7 +40,9 @@ listed in `.gitignore`.
 | `MDLOFile.swift` | container parsing + checksum verification |
 | `ModelLocator.swift` | finds the bundled or imported model |
 | `LlamaEngine.swift` | llama.cpp wrapper, streaming generation |
-| `Speech.swift` | speech-to-text, text-to-speech, number spelling |
+| `Speech.swift` | speech-to-text, Apple text-to-speech, number spelling |
+| `VoiceOutput.swift` | the voice protocol and its queue bookkeeping |
+| `KokoroVoice.swift` | Kokoro neural TTS through sherpa-onnx |
 | `CallViewModel.swift` | call state machine |
 | `MiraApp.swift` | SwiftUI interface (`@main` lives here) |
 
@@ -76,6 +81,9 @@ Two workflow inputs:
   you import a model in the app at runtime.
 - **`publish_release`** — `true` (default) attaches the IPA to `ios-latest`;
   `false` builds the artifact only.
+- **`bundle_tts`** — `true` (default) bundles the Kokoro voice, adding about
+  185 MB to the IPA. `false` builds without it and the app uses Apple's
+  synthesizer instead — much faster to iterate on.
 - **`llama_ref`** — which llama.cpp commit to build against. The default is
   `master`. The app uses the current llama.cpp C API (`llama_model_load_from_file`,
   `llama_init_from_model`, `llama_memory_clear`, `llama_model_chat_template`),
@@ -180,6 +188,40 @@ Both usage strings already live in `ios/Mira/Info.plist`:
 
 `UIBackgroundModes ▸ audio` is enabled so Mira keeps talking when the screen
 locks.
+
+## The voice
+
+Apple's built-in voices are the compact ones unless you have downloaded better
+ones, and they sound it. Mira instead runs **Kokoro-82M** locally through
+[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) — far more natural, and
+still no network.
+
+The bundled model is `kokoro-int8-multi-lang-v1_1`, int8-quantized, trimmed to
+what an English voice reads:
+
+| Part | Size |
+|---|---|
+| `model.int8.onnx` | 110 MB |
+| `voices.bin` | 52 MB |
+| `espeak-ng-data/` | 19 MB |
+| `lexicon-us-en.txt` | 5.7 MB |
+
+CI drops the Chinese jieba dictionary, the `zh` lexicon and FSTs, and the
+en-GB lexicon, which saves about 22 MB. `espeak-ng-data` is copied in as a
+**folder reference** so its directory structure survives into the bundle — the
+engine reads it by path.
+
+Sentences are synthesized one at a time on a background actor while the LLM
+generates the next one, and played through an `AVAudioPlayerNode`. Expect
+Kokoro to want another 150–300 MB of RAM alongside the language model; on an
+older device, build with `bundle_tts: false` and use the Apple voice.
+
+`KokoroSynthesizer.speakerID` picks which voice out of `voices.bin` to use —
+0 is an American English one. The sherpa-onnx Kokoro documentation has the
+full table if you want a different speaker.
+
+Settings ▸ *Voice* shows which engine actually loaded, which is the quickest
+way to confirm the model made it into the build.
 
 ## Performance notes
 
