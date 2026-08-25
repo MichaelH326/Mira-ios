@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 /// Drives the call: listen → generate → speak → listen again.
 @MainActor
@@ -18,7 +19,9 @@ final class CallViewModel: ObservableObject {
     @Published private(set) var transcript: [ChatMessage] = []
     @Published private(set) var liveMiraText = ""
     @Published private(set) var modelDescription = ""
-    @Published var handsFree = true
+    @Published var handsFree = true {
+        didSet { UserDefaults.standard.set(handsFree, forKey: Prefs.handsFreeKey) }
+    }
 
     let listener = SpeechListener()
     /// Every conversation is saved so the Chats tab can scroll back through them.
@@ -39,6 +42,9 @@ final class CallViewModel: ObservableObject {
     private let maxTurns = 16
 
     init() {
+        if UserDefaults.standard.object(forKey: Prefs.handsFreeKey) != nil {
+            handsFree = UserDefaults.standard.bool(forKey: Prefs.handsFreeKey)
+        }
         if let kokoro = KokoroVoice.makeIfAvailable() {
             speaker = kokoro
         } else {
@@ -109,6 +115,7 @@ final class CallViewModel: ObservableObject {
                 }
             }
             phase = .listening
+            tap(.light)
         } catch {
             phase = .failed(error.localizedDescription)
         }
@@ -143,8 +150,9 @@ final class CallViewModel: ObservableObject {
     /// Appends to the saved conversation, creating one on the first turn.
     private func remember(_ text: String, isMira: Bool) {
         var session = activeSession
-            ?? ChatSession(id: UUID(), startedAt: Date(), messages: [])
+            ?? ChatSession(id: UUID(), startedAt: Date(), endedAt: nil, messages: [])
         session.messages.append(ChatSession.Turn(isMira: isMira, text: text))
+        session.endedAt = Date()
         activeSession = session
         sessions.record(session)
     }
@@ -153,6 +161,7 @@ final class CallViewModel: ObservableObject {
         guard let engine, let chat else { return }
         listener.stop()
 
+        tap(.soft)
         transcript.append(ChatMessage(role: .user, text: text))
         remember(text, isMira: false)
         trimHistory()
@@ -223,6 +232,16 @@ final class CallViewModel: ObservableObject {
                 }
             }
         }
+    }
+
+    /// A short tick when a turn starts or ends. Off if the user turned
+    /// haptics off in Settings.
+    private func tap(_ style: UIImpactFeedbackGenerator.FeedbackStyle) {
+        let defaults = UserDefaults.standard
+        let wanted = defaults.object(forKey: Prefs.hapticsKey) == nil
+            ? true : defaults.bool(forKey: Prefs.hapticsKey)
+        guard wanted else { return }
+        UIImpactFeedbackGenerator(style: style).impactOccurred()
     }
 
     /// Keeps the system prompt plus the most recent turns.

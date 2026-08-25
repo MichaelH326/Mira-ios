@@ -1,5 +1,17 @@
 import Foundation
 
+enum SessionFilter: String, CaseIterable, Identifiable {
+    case all, today, thisWeek
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .all:      return "All"
+        case .today:    return "Today"
+        case .thisWeek: return "This Week"
+        }
+    }
+}
+
 /// One saved conversation.
 struct ChatSession: Identifiable, Codable, Equatable {
 
@@ -10,7 +22,21 @@ struct ChatSession: Identifiable, Codable, Equatable {
 
     let id: UUID
     var startedAt: Date
+    /// Optional so a file written before durations existed still decodes —
+    /// a missing key on a non-optional would throw away every saved chat.
+    var endedAt: Date?
     var messages: [Turn]
+
+    var duration: TimeInterval {
+        max(0, (endedAt ?? startedAt).timeIntervalSince(startedAt))
+    }
+
+    /// "4m 12s", or "48s" for a short one.
+    var durationLabel: String {
+        let total = Int(duration.rounded())
+        let minutes = total / 60, seconds = total % 60
+        return minutes > 0 ? "\(minutes)m \(String(format: "%02d", seconds))s" : "\(seconds)s"
+    }
 
     /// What the Chats list shows. The first thing the user said is a better
     /// handle on a conversation than the date is.
@@ -64,6 +90,65 @@ final class SessionStore: ObservableObject {
     func deleteAll() {
         sessions.removeAll()
         save()
+    }
+
+    // MARK: - Totals, for the usage card
+
+    var totalMessages: Int {
+        sessions.reduce(0) { $0 + $1.messages.count }
+    }
+
+    var totalMinutes: Int {
+        Int((sessions.reduce(0) { $0 + $1.duration } / 60).rounded())
+    }
+
+    /// Nothing is ever uploaded, so this is always zero — which is the point
+    /// of showing it.
+    var cloudBytes: String { "0 B" }
+
+    func filtered(matching query: String, filter: SessionFilter) -> [ChatSession] {
+        let calendar = Calendar.current
+        return sessions.filter { session in
+            let inRange: Bool
+            switch filter {
+            case .all:      inRange = true
+            case .today:    inRange = calendar.isDateInToday(session.startedAt)
+            case .thisWeek: inRange = calendar.isDate(session.startedAt,
+                                                      equalTo: Date(), toGranularity: .weekOfYear)
+            }
+            guard inRange else { return false }
+            let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return true }
+            return session.messages.contains { $0.text.localizedCaseInsensitiveContains(trimmed) }
+        }
+    }
+
+    /// Writes the saved chats somewhere the share sheet can reach, as plain
+    /// readable text rather than the internal JSON.
+    func exportFile() -> URL? {
+        guard !sessions.isEmpty else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+
+        var out = "Mira — saved conversations\n"
+        out += "Exported \(formatter.string(from: Date()))\n"
+        for session in sessions {
+            out += "\n\n———\n\(formatter.string(from: session.startedAt))"
+            out += "  ·  \(session.durationLabel)  ·  \(session.messages.count) messages\n\n"
+            for turn in session.messages {
+                out += "\(turn.isMira ? "Mira" : "You"): \(turn.text)\n"
+            }
+        }
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Mira-chats.txt")
+        do {
+            try out.write(to: url, atomically: true, encoding: .utf8)
+            return url
+        } catch {
+            return nil
+        }
     }
 
     private static func storeURL() -> URL? {

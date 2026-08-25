@@ -33,7 +33,18 @@ final class KokoroVoice: VoiceOutput {
         set { queue.onDrained = newValue }
     }
 
-    var describedVoice: String { "Kokoro · on-device" }
+    var describedVoice: String { "Kokoro · voice \(KokoroVoice.chosenSpeaker + 1)" }
+
+    /// Read at synthesis time rather than held, so a change in Settings
+    /// applies to the very next sentence.
+    static var chosenSpeaker: Int32 {
+        Int32(max(0, UserDefaults.standard.integer(forKey: Prefs.voiceKey)))
+    }
+
+    static var chosenSpeed: Float {
+        let stored = UserDefaults.standard.double(forKey: Prefs.speedKey)
+        return stored > 0 ? Float(min(max(stored, 0.5), 2.0)) : 1.0
+    }
 
     /// Returns nil when the model isn't bundled, so the caller can fall back.
     static func makeIfAvailable() -> KokoroVoice? {
@@ -69,7 +80,8 @@ final class KokoroVoice: VoiceOutput {
             // so playback order matches the order Mira generated them.
             _ = await previous?.value
             guard let self, !Task.isCancelled, self.generation == token else { return }
-            let samples = await self.synthesizer.synthesize(spoken)
+            let samples = await self.synthesizer.synthesize(
+                spoken, speaker: KokoroVoice.chosenSpeaker, speed: KokoroVoice.chosenSpeed)
             guard !Task.isCancelled, self.generation == token else { return }
             self.play(samples)
         }
@@ -145,11 +157,6 @@ actor KokoroSynthesizer {
         }
     }
 
-    /// Which speaker in `voices.bin` to use. The multi-lang model ships many;
-    /// the American English ones come first. See the sherpa-onnx Kokoro docs
-    /// for the full table if you want a different voice.
-    nonisolated static let speakerID: Int32 = 0
-
     private let tts: OpaquePointer
     nonisolated let sampleRate: Double
 
@@ -214,9 +221,9 @@ actor KokoroSynthesizer {
     }
 
     /// Returns mono float samples at `sampleRate`, or an empty array on failure.
-    func synthesize(_ text: String, speed: Float = 1.0) -> [Float] {
+    func synthesize(_ text: String, speaker: Int32 = 0, speed: Float = 1.0) -> [Float] {
         guard let generated = text.withCString({
-            SherpaOnnxOfflineTtsGenerate(tts, $0, Self.speakerID, speed)
+            SherpaOnnxOfflineTtsGenerate(tts, $0, speaker, speed)
         }) else { return [] }
         defer { SherpaOnnxDestroyOfflineTtsGeneratedAudio(generated) }
 
