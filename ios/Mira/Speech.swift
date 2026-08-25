@@ -16,7 +16,22 @@ final class SpeechListener: NSObject, ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var silenceTimer: Timer?
-    private var onTurn: ((String) -> Void)?
+    private var onTurn: ((TurnOutcome) -> Void)?
+    private var usingOnDevice = false
+
+    /// Dropped after on-device recognition fails once: some devices report
+    /// support without actually having the offline asset installed, and the
+    /// request then fails the moment it starts.
+    private var allowOnDevice = true
+
+    /// How a turn ended. Silence is normal and says nothing to the user;
+    /// a failure needs to be visible, or the button just blinks off with no
+    /// explanation.
+    enum TurnOutcome {
+        case heard(String)
+        case silence
+        case failed(String)
+    }
 
     enum ListenError: LocalizedError {
         case recognizerUnavailable
@@ -47,10 +62,9 @@ final class SpeechListener: NSObject, ObservableObject {
         }
     }
 
-    /// Starts a turn. `onTurn` is called exactly once when the turn ends —
-    /// with the recognized text, or with an empty string if nothing was heard,
-    /// so the caller always gets its state machine back.
-    func start(onTurn: @escaping (String) -> Void) throws {
+    /// Starts a turn. `onTurn` is called exactly once when the turn ends, so
+    /// the caller always gets its state machine back.
+    func start(onTurn: @escaping (TurnOutcome) -> Void) throws {
         guard !isListening else { return }
         guard let recognizer, recognizer.isAvailable else {
             throw ListenError.recognizerUnavailable
@@ -66,7 +80,8 @@ final class SpeechListener: NSObject, ObservableObject {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         // Keep audio on the device; also works with no network.
-        request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
+        request.requiresOnDeviceRecognition = allowOnDevice && recognizer.supportsOnDeviceRecognition
+        usingOnDevice = request.requiresOnDeviceRecognition
         self.request = request
 
         let input = engine.inputNode
@@ -86,25 +101,59 @@ final class SpeechListener: NSObject, ObservableObject {
             guard let self else { return }
             Task { @MainActor in
                 if let result {
-                    self.partialText = result.bestTranscription.formattedString
-                    self.restartSilenceTimer(after: self.endOfTurnSilence)
+                    let heard = result.bestTranscription.formattedString
+                    self.partialText = heard
+                    // Recognition delivers early results that are still empty.
+                    // Switching to the short end-of-turn window on one of those
+                    // ends the turn about a second after the tap, before the
+                    // user has said anything — keep the opening window until
+                    // there is actually something to end.
+                    let started = !heard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    self.restartSilenceTimer(after: started ? self.endOfTurnSilence
+                                                            : self.openingSilence)
                 }
-                // A recognition error ends the turn too — most often it is
-                // simply "no speech detected", which is an empty turn.
-                if error != nil || (result?.isFinal ?? false) {
+                if let error {
+                    self.finishTurn(error: error)
+                } else if result?.isFinal ?? false {
                     self.finishTurn()
                 }
             }
         }
     }
 
-    /// Stops listening and delivers whatever was heard — including nothing.
-    func finishTurn() {
+    /// Stops listening and reports how the turn ended.
+    func finishTurn(error: Error? = nil) {
         guard isListening else { return }
         let text = partialText.trimmingCharacters(in: .whitespacesAndNewlines)
         let deliver = onTurn
+        let wasOnDevice = usingOnDevice
         stop()
-        deliver?(text)
+
+        if !text.isEmpty {
+            deliver?(.heard(text))
+            return
+        }
+        guard let error, !Self.isSilence(error) else {
+            deliver?(.silence)
+            return
+        }
+        if wasOnDevice && allowOnDevice {
+            // Reported as supported, then failed with nothing transcribed —
+            // the offline asset almost certainly isn't installed. Use the
+            // network recognizer for the rest of the session.
+            allowOnDevice = false
+            deliver?(.failed("On-device speech recognition wouldn't start. Switching to network recognition — tap to talk again."))
+            return
+        }
+        deliver?(.failed(error.localizedDescription))
+    }
+
+    /// Errors that mean "nothing was said" or "we cancelled it ourselves",
+    /// as opposed to a recognizer that failed to run.
+    private static func isSilence(_ error: Error) -> Bool {
+        let error = error as NSError
+        guard error.domain == "kAFAssistantErrorDomain" else { return false }
+        return [216, 301, 1110].contains(error.code)
     }
 
     func stop() {

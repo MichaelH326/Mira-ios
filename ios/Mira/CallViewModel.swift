@@ -81,15 +81,18 @@ final class CallViewModel: ObservableObject {
         guard engine != nil else { return }
         speaker.stop()
         do {
-            try listener.start { [weak self] text in
+            try listener.start { [weak self] outcome in
                 Task { @MainActor in
                     guard let self else { return }
-                    // An empty turn means nothing was recognized. Hand the
-                    // button back rather than sitting on "Listening…".
-                    if text.isEmpty {
-                        self.phase = .idle
-                    } else {
+                    switch outcome {
+                    case .heard(let text):
                         self.send(text)
+                    case .silence:
+                        // Nothing said. Hand the button back quietly rather
+                        // than sitting on "Listening…".
+                        self.phase = .idle
+                    case .failed(let reason):
+                        self.phase = .failed(reason)
                     }
                 }
             }

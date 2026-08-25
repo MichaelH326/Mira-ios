@@ -195,10 +195,15 @@ before the `.mdlo` document type was declared in `Info.plist`. Rebuild. Two
 other ways in on a current build: put the file in **Files ▸ On My iPhone ▸
 Mira** and reopen the app, or share it to Mira from the Files share sheet.
 
+**The talk button switches on and straight back off** — fixed; rebuild. An
+early empty recognition result was collapsing the opening window down to the
+1.1 s end-of-turn pause, ending the turn about a second after the tap. The
+short window now applies only once something has actually been transcribed;
+until then you get `SpeechListener.openingSilence` (6 s) to start speaking.
+
 **Tapping to talk never ends the turn** — also fixed by rebuilding: the turn
 used to end only on a recognition result, so silence left it listening
-indefinitely. It now gives up after `SpeechListener.openingSilence` (6 s) if
-it hears nothing at all.
+indefinitely.
 
 **"Speech recognition isn't available right now"** — dictation is off. Settings
 ▸ General ▸ Keyboard ▸ Enable Dictation. Speech-to-text runs on-device when the
