@@ -1,0 +1,154 @@
+name: Build iOS app (unsigned IPA)
+
+# Produces an unsigned Mira.ipa on a macOS runner. Unsigned means it won't
+# install on a stock iPhone directly — sideload it with a signing tool
+# (AltStore, Sideloadly, or `xcrun devicectl` with your own certificate).
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_source:
+        description: "Where to get mira.mdlo"
+        type: choice
+        default: "latest-release"
+        options:
+          - "latest-release"   # newest Release asset named mira.mdlo
+          - "none"             # build without a model; import one at runtime
+      llama_ref:
+        description: "llama.cpp git ref to build against (a tag pins the C API)"
+        default: "master"
+  push:
+    paths:
+      - "ios/**"
+      - ".github/workflows/build-ios.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      LLAMA_REF: ${{ github.event.inputs.llama_ref || 'master' }}
+      MODEL_SOURCE: ${{ github.event.inputs.model_source || 'latest-release' }}
+    defaults:
+      run:
+        working-directory: ios
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -switch /Applications/Xcode.app
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # llama.cpp dropped its Swift Package manifest, so we build the
+      # official xcframework and link that instead. The first run takes
+      # roughly half an hour; later runs restore it from the cache.
+      - name: Cache llama.xcframework
+        id: cache-llama
+        uses: actions/cache@v4
+        with:
+          path: ios/Frameworks/llama.xcframework
+          key: llama-xcframework-${{ env.LLAMA_REF }}-${{ runner.os }}-v1
+
+      - name: Build llama.xcframework
+        if: steps.cache-llama.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/llama.cpp
+          git clone https://github.com/ggml-org/llama.cpp /tmp/llama.cpp
+          cd /tmp/llama.cpp
+          git checkout "$LLAMA_REF"
+          ./build-xcframework.sh
+          rm -rf "$GITHUB_WORKSPACE/ios/Frameworks/llama.xcframework"
+          mkdir -p "$GITHUB_WORKSPACE/ios/Frameworks"
+          cp -R build-apple/llama.xcframework "$GITHUB_WORKSPACE/ios/Frameworks/"
+
+      - name: Check the xcframework has an iOS device slice
+        run: |
+          set -euo pipefail
+          test -d Frameworks/llama.xcframework || { echo "llama.xcframework is missing"; exit 1; }
+          ls Frameworks/llama.xcframework
+          test -d Frameworks/llama.xcframework/ios-arm64 \
+            || { echo "no ios-arm64 slice in llama.xcframework"; exit 1; }
+
+      - name: Fetch mira.mdlo
+        if: ${{ env.MODEL_SOURCE != 'none' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p Resources
+          # Newest release carrying a mira.mdlo asset
+          TAG=$(gh release list --limit 30 --json tagName,assets \
+                 --jq '[.[] | select(any(.assets[]?; .name == "mira.mdlo"))][0].tagName' || true)
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "::warning::No release contains mira.mdlo — building without a bundled model."
+            exit 0
+          fi
+          echo "Using model from release $TAG"
+          gh release download "$TAG" --pattern mira.mdlo --dir Resources --clobber
+          ls -lh Resources/mira.mdlo
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project Mira.xcodeproj \
+            -scheme Mira \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_ENTITLEMENTS="" \
+            ONLY_ACTIVE_ARCH=NO \
+            build
+
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -1)
+          if [ -z "$APP" ]; then
+            echo "No .app was produced"; exit 1
+          fi
+          echo "Packaging $APP"
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/
+          # Unsigned: strip any leftover signature metadata
+          rm -rf Payload/*.app/_CodeSignature
+          zip -qry Mira-unsigned.ipa Payload
+          ls -lh Mira-unsigned.ipa
+
+      - name: Verify the bundle
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/check
+          unzip -o -q Mira-unsigned.ipa -d /tmp/check
+          APP=$(find /tmp/check/Payload -maxdepth 1 -name "*.app" | head -1)
+          echo "Bundle contents:"; ls -la "$APP"
+          test -f "$APP/Info.plist" || { echo "missing Info.plist"; exit 1; }
+          test -f "$APP/Mira" || { echo "missing app binary"; exit 1; }
+          test -d "$APP/Frameworks" || { echo "missing embedded frameworks"; exit 1; }
+          ls "$APP/Frameworks"
+          if [ -f "$APP/mira.mdlo" ]; then
+            echo "model bundled: $(du -h "$APP/mira.mdlo" | cut -f1)"
+          else
+            echo "::warning::No model in the bundle — import one in the app at runtime."
+          fi
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mira-unsigned-ipa
+          path: ios/Mira-unsigned.ipa
+          retention-days: 30

@@ -1,0 +1,57 @@
+name: Mira
+
+options:
+  bundleIdPrefix: com.mira.voice
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+targets:
+  Mira:
+    type: application
+    platform: iOS
+
+    sources:
+      # Info.plist is consumed via INFOPLIST_FILE; adding it to the resources
+      # phase as well makes two build commands write the same output.
+      - path: Mira
+        excludes:
+          - "Info.plist"
+      - path: Mira/Info.plist
+        buildPhase: none
+      # mira.mdlo is dropped here by CI (or by you locally) and copied into
+      # the app bundle. Optional so the project still builds without it.
+      - path: Resources
+        optional: true
+        buildPhase: resources
+        excludes:
+          - ".gitkeep"
+
+    dependencies:
+      # Produced by llama.cpp's build-xcframework.sh — see the build workflow.
+      # llama.cpp no longer ships a Swift Package manifest, so the xcframework
+      # is the supported way to embed it.
+      - framework: Frameworks/llama.xcframework
+        embed: true
+        codeSign: false
+
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mira.voice.app
+        PRODUCT_NAME: Mira
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"          # iPhone
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Mira/Info.plist
+        OTHER_LDFLAGS: ["-lc++"]
+        # Unsigned builds: CI overrides these on the command line too.
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGN_IDENTITY: ""
