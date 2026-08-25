@@ -66,7 +66,7 @@ final class SpeechListener: NSObject, ObservableObject {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         // Keep audio on the device; also works with no network.
-        request.requiresOnDeviceRecognition = recognizer?.supportsOnDeviceRecognition ?? false
+        request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
         self.request = request
 
         let input = engine.inputNode
