@@ -17,13 +17,18 @@ on:
       llama_ref:
         description: "llama.cpp git ref to build against (a tag pins the C API)"
         default: "master"
+      publish_release:
+        description: "Attach the IPA to the ios-latest prerelease"
+        type: choice
+        default: "true"
+        options: ["true", "false"]
   push:
     paths:
       - "ios/**"
       - ".github/workflows/build-ios.yml"
 
 permissions:
-  contents: read
+  contents: write   # needed to attach the IPA to a release
 
 jobs:
   build:
@@ -32,6 +37,7 @@ jobs:
     env:
       LLAMA_REF: ${{ github.event.inputs.llama_ref || 'master' }}
       MODEL_SOURCE: ${{ github.event.inputs.model_source || 'latest-release' }}
+      PUBLISH_RELEASE: ${{ github.event.inputs.publish_release || 'true' }}
     defaults:
       run:
         working-directory: ios
@@ -148,7 +154,40 @@ jobs:
             echo "::warning::No model in the bundle — import one in the app at runtime."
           fi
 
-      - name: Upload IPA
+      # Artifacts are always served as a zip, whatever is inside them, so a
+      # download gives you Mira-unsigned-ipa.zip rather than an .ipa a signing
+      # tool will accept. Release assets are served raw, so publish there too —
+      # this is the link to open on the phone.
+      - name: Publish the IPA to the ios-latest prerelease
+        if: ${{ env.PUBLISH_RELEASE != 'false' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TAG=ios-latest
+          NOTES="Unsigned build of Mira for iOS, from ${GITHUB_SHA} on $(date -u '+%Y-%m-%d %H:%M UTC').
+
+          Download **Mira-unsigned.ipa** below and sign it with Sideloadly,
+          AltStore, or your own certificate — iOS will not install it as-is.
+
+          Rolling tag: each successful build replaces this asset."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes "$NOTES"
+          else
+            gh release create "$TAG" \
+              --title "Mira for iOS (unsigned)" \
+              --notes "$NOTES" \
+              --target "$GITHUB_SHA" \
+              --prerelease
+          fi
+          gh release upload "$TAG" Mira-unsigned.ipa --clobber
+          echo "Release assets now:"
+          gh release view "$TAG" --json assets --jq '.assets[] | "\(.name)  \(.size) bytes"'
+
+      # Kept as well: the artifact is what a PR or a failed-release run can
+      # still hand you, and it does not need a tag.
+      - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: Mira-unsigned-ipa

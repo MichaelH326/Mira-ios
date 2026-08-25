@@ -54,13 +54,28 @@ a GitHub macOS runner. Run it from the Actions tab. It:
 5. packages `Payload/Mira.app` into `Mira-unsigned.ipa`,
 6. verifies the bundle really contains the binary, Info.plist, frameworks, and
    model,
-7. uploads the IPA as an artifact.
+7. attaches `Mira-unsigned.ipa` to the `ios-latest` prerelease, and also
+   uploads it as a workflow artifact.
+
+### Getting the .ipa itself
+
+**Use the release, not the artifact.** `actions/upload-artifact` always zips
+what it is given — there is no way to disable that — so downloading the
+artifact gets you `Mira-unsigned-ipa.zip` with the `.ipa` inside, which
+signing tools won't take and iOS Safari can't unwrap. Release assets are
+served raw, so the `ios-latest` prerelease gives you a real `.ipa` you can
+open straight into Sideloadly or AltStore, including on the phone itself.
+
+It's a rolling tag: every successful build replaces the asset, so the link
+never changes. Dispatch with `publish_release: false` to skip it.
 
 Two workflow inputs:
 
 - **`model_source`** — `latest-release` (default) bundles the model from your
   newest Release carrying a `mira.mdlo` asset; `none` builds without one, and
   you import a model in the app at runtime.
+- **`publish_release`** — `true` (default) attaches the IPA to `ios-latest`;
+  `false` builds the artifact only.
 - **`llama_ref`** — which llama.cpp commit to build against. The default is
   `master`. The app uses the current llama.cpp C API (`llama_model_load_from_file`,
   `llama_init_from_model`, `llama_memory_clear`, `llama_model_chat_template`),
