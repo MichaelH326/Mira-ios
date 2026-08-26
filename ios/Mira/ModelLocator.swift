@@ -90,10 +90,18 @@ enum ModelLocator {
         return url
     }
 
+    /// Any model shipped in the app bundle — not just one called "mira".
+    /// CI happens to name it that, but a file dropped into Resources for a
+    /// local build need not be, and assuming the name is what made a second
+    /// model look unsupported.
     static func bundledModel() -> URL? {
         for suffix in supportedExtensions {
-            if let url = Bundle.main.url(forResource: "mira", withExtension: suffix) {
-                return url
+            let matches = Bundle.main.urls(forResourcesWithExtension: suffix,
+                                           subdirectory: nil) ?? []
+            if let first = matches.sorted(by: {
+                $0.lastPathComponent.localizedCompare($1.lastPathComponent) == .orderedAscending
+            }).first {
+                return first
             }
         }
         return nil
