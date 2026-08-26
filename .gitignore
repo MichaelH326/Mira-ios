@@ -8,6 +8,7 @@ ios/Payload/
 # frameworks from source.
 ios/Resources/mira.mdlo
 ios/Resources/kokoro/
+ios/Resources/speech/
 ios/Frameworks/llama.xcframework/
 ios/Frameworks/sherpa-onnx.xcframework/
 ios/Frameworks/onnxruntime.xcframework/

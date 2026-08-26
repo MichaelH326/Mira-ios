@@ -73,6 +73,14 @@ enum ModelLocator {
         return url
     }
 
+    /// The bundled streaming speech model, if this build shipped one.
+    static func bundledSpeechDirectory() -> URL? {
+        guard let url = Bundle.main.url(forResource: "speech", withExtension: nil),
+              FileManager.default.fileExists(atPath:
+                url.appendingPathComponent("encoder.onnx").path) else { return nil }
+        return url
+    }
+
     static func bundledModel() -> URL? {
         Bundle.main.url(forResource: "mira", withExtension: "mdlo")
     }

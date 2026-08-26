@@ -165,6 +165,9 @@ struct SettingsView: View {
             Divider().overlay(Palette.powder)
             info("Voice engine", call.speaker.describedVoice)
             Divider().overlay(Palette.powder)
+            info("Speech to text", call.listener.usesLocalModel
+                 ? "On-device streaming" : "Apple Dictation")
+            Divider().overlay(Palette.powder)
             info("Storage used", ModelLocator.diskUsageDescription())
             Divider().overlay(Palette.powder)
             Button("Free extracted cache") {

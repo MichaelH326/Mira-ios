@@ -223,6 +223,27 @@ full table if you want a different speaker.
 Settings ▸ *Voice* shows which engine actually loaded, which is the quickest
 way to confirm the model made it into the build.
 
+## Speech to text
+
+Builds that bundle the models use a **streaming Zipformer transducer** through
+sherpa-onnx rather than `SFSpeechRecognizer`. Three reasons:
+
+- It is genuinely on-device. Apple's recognizer silently falls back to its
+  *server* recognizer when the offline asset for the locale isn't installed,
+  which broke airplane mode without saying so.
+- It doesn't need Dictation enabled, which was a real failure mode.
+- It emits a continuously growing transcript rather than chunked partials,
+  which is what makes the live transcription read as live.
+
+It also endpoints for itself — the model decides when you have stopped
+speaking — replacing the hand-rolled silence timers that caused the early
+"the button switches on and straight back off" bug. The timers remain only as
+a backstop.
+
+Only the int8 weights are bundled: the float encoder alone is 249 MB against
+67 MB quantized. Total is about 68 MB, and `SFSpeechRecognizer` stays as the
+fallback for builds made with `bundle_tts: false`.
+
 ## Performance notes
 
 A 360M Q4_K_M model on an A16 or newer generates faster than speech, so Mira

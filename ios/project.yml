@@ -33,9 +33,14 @@ targets:
         excludes:
           - ".gitkeep"
           - "kokoro"
+          - "speech"
       # A folder reference, not a group: espeak-ng-data is read by path at
       # runtime, so the directory structure has to survive into the bundle.
       - path: Resources/kokoro
+        type: folder
+        optional: true
+        buildPhase: resources
+      - path: Resources/speech
         type: folder
         optional: true
         buildPhase: resources

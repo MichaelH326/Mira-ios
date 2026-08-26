@@ -46,6 +46,7 @@ jobs:
       BUNDLE_TTS: ${{ github.event.inputs.bundle_tts || 'true' }}
       SHERPA_REF: v1.13.6
       KOKORO_MODEL: kokoro-int8-multi-lang-v1_1
+      ASR_MODEL: sherpa-onnx-streaming-zipformer-en-2023-06-26
     defaults:
       run:
         working-directory: ios
@@ -147,6 +148,25 @@ jobs:
           cp -R "$SRC/espeak-ng-data" "$DEST/"
           du -sh "$DEST"
 
+      - name: Fetch the streaming speech model
+        if: ${{ env.BUNDLE_TTS != 'false' }}
+        run: |
+          set -euo pipefail
+          curl -fSL --retry 3 -o /tmp/asr.tar.bz2 \
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/${ASR_MODEL}.tar.bz2"
+          rm -rf /tmp/asr && mkdir -p /tmp/asr
+          tar xjf /tmp/asr.tar.bz2 -C /tmp/asr
+          SRC="/tmp/asr/${ASR_MODEL}"
+          DEST=Resources/speech
+          rm -rf "$DEST" && mkdir -p "$DEST"
+          # int8 only: the float encoder alone is 249MB against 67MB quantized,
+          # and the test wavs and export scripts are not needed on a phone.
+          cp "$SRC"/encoder-*.int8.onnx "$DEST/encoder.onnx"
+          cp "$SRC"/decoder-*.int8.onnx "$DEST/decoder.onnx"
+          cp "$SRC"/joiner-*.int8.onnx  "$DEST/joiner.onnx"
+          cp "$SRC/tokens.txt" "$DEST/"
+          du -sh "$DEST"
+
       - name: Fetch mira.mdlo
         if: ${{ env.MODEL_SOURCE != 'none' }}
         env:
@@ -215,6 +235,8 @@ jobs:
             test -f "$APP/kokoro/model.int8.onnx" || { echo "Kokoro model missing from bundle"; exit 1; }
             test -d "$APP/kokoro/espeak-ng-data" || { echo "espeak-ng-data flattened or missing"; exit 1; }
             echo "Kokoro voice bundled: $(du -sh "$APP/kokoro" | cut -f1)"
+            test -f "$APP/speech/encoder.onnx" || { echo "speech model missing from bundle"; exit 1; }
+            echo "Speech model bundled: $(du -sh "$APP/speech" | cut -f1)"
           fi
           if [ -f "$APP/mira.mdlo" ]; then
             echo "model bundled: $(du -h "$APP/mira.mdlo" | cut -f1)"

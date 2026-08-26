@@ -13,6 +13,18 @@ final class SpeechListener: NSObject, ObservableObject {
 
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private let engine = AVAudioEngine()
+
+    /// The bundled streaming model when this build shipped one. It replaces
+    /// Apple's recognizer entirely: genuinely on-device, no Dictation
+    /// requirement, and a transcript that grows continuously instead of in
+    /// chunks.
+    private let localASR: StreamingRecognizer?
+    private var converter: AVAudioConverter?
+    private let asrFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                          sampleRate: StreamingRecognizer.sampleRate,
+                                          channels: 1, interleaved: false)
+
+    var usesLocalModel: Bool { localASR != nil }
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var silenceTimer: Timer?
@@ -52,22 +64,37 @@ final class SpeechListener: NSObject, ObservableObject {
     /// talk and staying quiet left the app listening forever.
     var openingSilence: TimeInterval = 6
 
-    static func requestPermissions() async -> Bool {
+    override init() {
+        if let directory = ModelLocator.bundledSpeechDirectory() {
+            localASR = try? StreamingRecognizer(directory: directory)
+        } else {
+            localASR = nil
+        }
+        super.init()
+    }
+
+    /// The microphone is always needed. Apple's speech authorization is only
+    /// needed when Apple's recognizer is the one doing the work.
+    func requestPermissions() async -> Bool {
+        let microphone = await withCheckedContinuation { continuation in
+            AVAudioApplication.requestRecordPermission { continuation.resume(returning: $0) }
+        }
+        guard microphone else { return false }
+        guard localASR == nil else { return true }
         let speech = await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
         }
-        guard speech == .authorized else { return false }
-        return await withCheckedContinuation { continuation in
-            AVAudioApplication.requestRecordPermission { continuation.resume(returning: $0) }
-        }
+        return speech == .authorized
     }
 
     /// Starts a turn. `onTurn` is called exactly once when the turn ends, so
     /// the caller always gets its state machine back.
     func start(onTurn: @escaping (TurnOutcome) -> Void) throws {
         guard !isListening else { return }
-        guard let recognizer, recognizer.isAvailable else {
-            throw ListenError.recognizerUnavailable
+        if localASR == nil {
+            guard let recognizer, recognizer.isAvailable else {
+                throw ListenError.recognizerUnavailable
+            }
         }
         self.onTurn = onTurn
         partialText = ""
@@ -77,16 +104,44 @@ final class SpeechListener: NSObject, ObservableObject {
                                 options: [.duckOthers, .defaultToSpeaker, .allowBluetooth])
         try session.setActive(true, options: .notifyOthersOnDeactivation)
 
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        // Keep audio on the device; also works with no network.
-        request.requiresOnDeviceRecognition = allowOnDevice && recognizer.supportsOnDeviceRecognition
-        usingOnDevice = request.requiresOnDeviceRecognition
-        self.request = request
-
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         input.removeTap(onBus: 0)
+
+        if let localASR, let asrFormat {
+            // sherpa-onnx wants 16 kHz mono; the microphone rarely gives that.
+            let converter = AVAudioConverter(from: format, to: asrFormat)
+            self.converter = converter
+            Task { await localASR.beginTurn() }
+
+            input.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buffer, _ in
+                self?.updateLevel(from: buffer)
+                guard let converter,
+                      let samples = SpeechListener.resample(buffer, using: converter, to: asrFormat),
+                      !samples.isEmpty else { return }
+                Task { [weak self] in
+                    guard let update = await localASR.accept(samples) else { return }
+                    await MainActor.run { self?.handle(update) }
+                }
+            }
+
+            engine.prepare()
+            try engine.start()
+            isListening = true
+            usingOnDevice = true
+            // The model endpoints for itself; this is only a backstop against a
+            // turn that somehow never ends.
+            restartSilenceTimer(after: 45)
+            return
+        }
+
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        // Keep audio on the device; also works with no network.
+        request.requiresOnDeviceRecognition = allowOnDevice && (recognizer?.supportsOnDeviceRecognition ?? false)
+        usingOnDevice = request.requiresOnDeviceRecognition
+        self.request = request
+
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             request.append(buffer)
             self?.updateLevel(from: buffer)
@@ -97,7 +152,7 @@ final class SpeechListener: NSObject, ObservableObject {
         isListening = true
         restartSilenceTimer(after: openingSilence)
 
-        task = recognizer.recognitionTask(with: request) { [weak self] result, error in
+        task = recognizer?.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
             Task { @MainActor in
                 if let result {
@@ -166,8 +221,44 @@ final class SpeechListener: NSObject, ObservableObject {
         task?.cancel()
         request = nil
         task = nil
+        converter = nil
+        if let localASR { Task { await localASR.endTurn() } }
         isListening = false
         audioLevel = 0
+    }
+
+    /// Applies an update from the streaming model. It decides for itself when
+    /// the speaker has stopped, which is what replaces the silence timer.
+    private func handle(_ update: StreamingRecognizer.Update) {
+        guard isListening else { return }
+        if !update.text.isEmpty { partialText = update.text }
+        if update.isEndpoint { finishTurn() }
+    }
+
+    /// The microphone rarely runs at 16 kHz, so every buffer is converted
+    /// before the model sees it.
+    private nonisolated static func resample(_ buffer: AVAudioPCMBuffer,
+                                             using converter: AVAudioConverter,
+                                             to format: AVAudioFormat) -> [Float]? {
+        let ratio = format.sampleRate / buffer.format.sampleRate
+        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1024
+        guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else {
+            return nil
+        }
+        var delivered = false
+        var conversionError: NSError?
+        converter.convert(to: output, error: &conversionError) { _, status in
+            if delivered {
+                status.pointee = .noDataNow
+                return nil
+            }
+            delivered = true
+            status.pointee = .haveData
+            return buffer
+        }
+        guard conversionError == nil, output.frameLength > 0,
+              let channel = output.floatChannelData?[0] else { return nil }
+        return Array(UnsafeBufferPointer(start: channel, count: Int(output.frameLength)))
     }
 
     private func restartSilenceTimer(after interval: TimeInterval) {

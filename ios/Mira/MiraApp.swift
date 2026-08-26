@@ -35,7 +35,7 @@ struct RootView: View {
             if let model, call.transcript.isEmpty {
                 call.load(modelURL: model.url)
             }
-            permissionDenied = !(await SpeechListener.requestPermissions())
+            permissionDenied = !(await call.listener.requestPermissions())
         }
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: ModelLocator.pickableTypes,
