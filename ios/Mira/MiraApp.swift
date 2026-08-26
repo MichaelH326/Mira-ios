@@ -85,6 +85,18 @@ private struct TalkView: View {
             StatusCard(call: call, listener: listener, permissionDenied: permissionDenied)
                 .padding(.horizontal, 20)
 
+            if let notice = call.voiceNotice {
+                HStack(spacing: 6) {
+                    Image(systemName: "wifi.slash").font(.system(size: 10, weight: .bold))
+                    Text(notice)
+                        .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                        .lineLimit(2)
+                }
+                .foregroundStyle(Palette.inkSoft)
+                .padding(.horizontal, 24)
+                .padding(.top, 7)
+            }
+
             if hasConversation {
                 LiveTranscript(call: call, listener: listener).padding(.top, 10)
             } else {
@@ -98,13 +110,17 @@ private struct TalkView: View {
         }
     }
 
+    /// Only claims privacy when it is true: with the Edge voice selected, the
+    /// text of Mira's replies is sent to Microsoft to be spoken.
     private var privacyBadge: some View {
         HStack(spacing: 7) {
-            Circle().fill(Palette.skyDeep).frame(width: 6, height: 6)
-            Text("ON-DEVICE & PRIVATE")
+            Circle()
+                .fill(call.isFullyLocal ? Palette.skyDeep : Palette.amber)
+                .frame(width: 6, height: 6)
+            Text(call.isFullyLocal ? "ON-DEVICE & PRIVATE" : "VOICE VIA MICROSOFT")
                 .font(.system(size: 11, weight: .bold, design: .rounded))
                 .kerning(0.8)
-                .foregroundStyle(Palette.skyInk)
+                .foregroundStyle(call.isFullyLocal ? Palette.skyInk : Palette.ink)
         }
         .padding(.horizontal, 15).padding(.vertical, 8)
         .background(Capsule().fill(Palette.powder.opacity(0.75)))
@@ -337,9 +353,15 @@ private struct LiveTranscript: View {
                         ChatBubble(text: message.text, isMira: message.role == .assistant)
                             .id(message.id)
                     }
+                    // Mira's reply, growing sentence by sentence as it is
+                    // generated rather than appearing all at once at the end.
+                    if !call.liveMiraText.isEmpty {
+                        ChatBubble(text: call.liveMiraText, isMira: true)
+                            .id("live")
+                    }
                     if call.phase == .listening, !listener.partialText.isEmpty {
                         ChatBubble(text: listener.partialText, isMira: false)
-                            .opacity(0.5).id("partial")
+                            .opacity(0.55).id("partial")
                     }
                 }
                 .padding(.horizontal, 20)
@@ -347,6 +369,12 @@ private struct LiveTranscript: View {
             }
             .onChange(of: call.transcript.count) { _, _ in
                 withAnimation { proxy.scrollTo(call.transcript.last?.id, anchor: .bottom) }
+            }
+            .onChange(of: call.liveMiraText) { _, _ in
+                withAnimation { proxy.scrollTo("live", anchor: .bottom) }
+            }
+            .onChange(of: listener.partialText) { _, _ in
+                withAnimation { proxy.scrollTo("partial", anchor: .bottom) }
             }
         }
     }

@@ -26,8 +26,11 @@ final class CallViewModel: ObservableObject {
     let listener = SpeechListener()
     /// Every conversation is saved so the Chats tab can scroll back through them.
     let sessions = SessionStore()
-    /// Kokoro when this build bundled it, Apple's synthesizer otherwise.
-    let speaker: any VoiceOutput
+    /// Edge when it's selected and reachable, otherwise the on-device voice.
+    @Published private(set) var speaker: any VoiceOutput
+
+    /// Set when Edge drops out mid-conversation, so the UI can say so.
+    @Published private(set) var voiceNotice: String?
 
     private var engine: LlamaEngine?
     private var chat: MDLOFile.ChatConfig?
@@ -45,16 +48,38 @@ final class CallViewModel: ObservableObject {
         if UserDefaults.standard.object(forKey: Prefs.handsFreeKey) != nil {
             handsFree = UserDefaults.standard.bool(forKey: Prefs.handsFreeKey)
         }
-        if let kokoro = KokoroVoice.makeIfAvailable() {
-            speaker = kokoro
-        } else {
-            speaker = Speaker()
-        }
+        speaker = Self.makeSpeaker()
+        wireSpeaker()
+    }
+
+    /// Edge is the default; the on-device voice sits behind it as the fallback,
+    /// so a dead connection degrades rather than silences her.
+    private static func makeSpeaker() -> any VoiceOutput {
+        let local: any VoiceOutput = KokoroVoice.makeIfAvailable() ?? Speaker()
+        let engine = UserDefaults.standard.string(forKey: Prefs.engineKey) ?? "edge"
+        return engine == "edge" ? EdgeVoice(fallback: local) : local
+    }
+
+    private func wireSpeaker() {
         speaker.onFinishedSpeaking = { [weak self] in
             guard let self, self.phase == .speaking else { return }
             if self.handsFree { self.beginListening() } else { self.phase = .idle }
         }
+        (speaker as? EdgeVoice)?.onDegraded = { [weak self] reason in
+            self?.voiceNotice = "On-device voice — \(reason)"
+        }
     }
+
+    /// Rebuilds the voice after the engine is changed in Settings.
+    func applyVoiceEngine() {
+        speaker.stop()
+        voiceNotice = nil
+        speaker = Self.makeSpeaker()
+        wireSpeaker()
+    }
+
+    /// True when nothing Mira says leaves the phone.
+    var isFullyLocal: Bool { !(speaker is EdgeVoice) }
 
     // MARK: - Setup
 

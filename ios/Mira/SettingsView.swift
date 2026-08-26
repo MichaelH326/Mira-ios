@@ -8,6 +8,8 @@ enum Prefs {
     static let speedKey = "mira.voice.speed"
     static let hapticsKey = "mira.haptics"
     static let handsFreeKey = "mira.handsFree"
+    static let engineKey = "mira.voice.engine"
+    static let edgeVoiceKey = "mira.voice.edgeName"
 }
 
 struct SettingsView: View {
@@ -17,6 +19,8 @@ struct SettingsView: View {
     @AppStorage(Prefs.voiceKey) private var speaker = 0
     @AppStorage(Prefs.speedKey) private var speed = 1.0
     @AppStorage(Prefs.hapticsKey) private var haptics = true
+    @AppStorage(Prefs.engineKey) private var engine = "edge"
+    @AppStorage(Prefs.edgeVoiceKey) private var edgeVoice = "Rosa"
 
     @State private var showImporter = false
     @State private var exporting = false
@@ -60,17 +64,41 @@ struct SettingsView: View {
 
     private var voiceCard: some View {
         Card(icon: "speaker.wave.2.fill", tint: Palette.powder,
-             title: "Voice", subtitle: "ON-DEVICE SYNTHESIZER") {
-            row("Mira's voice") {
-                Picker("", selection: $speaker) {
-                    ForEach(0..<6, id: \.self) { index in
-                        Text("Voice \(index + 1)").tag(index)
-                    }
+             title: "Voice", subtitle: engine == "edge" ? "MICROSOFT EDGE · ONLINE" : "ON-DEVICE SYNTHESIZER") {
+            row("Engine") {
+                Picker("", selection: $engine) {
+                    Text("Edge (online)").tag("edge")
+                    Text("On-device").tag("kokoro")
                 }
                 .pickerStyle(.menu)
                 .tint(Palette.skyInk)
+                .onChange(of: engine) { _, _ in call.applyVoiceEngine() }
             }
             Divider().overlay(Palette.powder)
+            if engine == "edge" {
+                row("Edge voice") {
+                    TextField("Rosa", text: $edgeVoice)
+                        .multilineTextAlignment(.trailing)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Palette.ink)
+                        .onSubmit { call.applyVoiceEngine() }
+                }
+                Divider().overlay(Palette.powder)
+            }
+            if engine != "edge" {
+                row("Mira's voice") {
+                    Picker("", selection: $speaker) {
+                        ForEach(0..<6, id: \.self) { index in
+                            Text("Voice \(index + 1)").tag(index)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .tint(Palette.skyInk)
+                }
+                Divider().overlay(Palette.powder)
+            }
             VStack(alignment: .leading, spacing: 7) {
                 HStack {
                     Text("Speaking speed")
@@ -85,7 +113,9 @@ struct SettingsView: View {
                 Slider(value: $speed, in: 0.7...1.4, step: 0.05)
                     .tint(Palette.skyDeep)
             }
-            Text("Voices come from the bundled Kokoro model — these are its first six English speakers, not separate personalities.")
+            Text(engine == "edge"
+                 ? "Edge voices are synthesized by Microsoft, so this needs a connection and the text of Mira's replies is sent to them. If it can't be reached, Mira switches to the on-device voice for the rest of the session."
+                 : "Voices come from the bundled Kokoro model — these are its first six English speakers, not separate personalities.")
                 .font(.system(size: 12, design: .rounded))
                 .foregroundStyle(Palette.inkFaint)
                 .fixedSize(horizontal: false, vertical: true)
