@@ -21,7 +21,8 @@ struct RootView: View {
                 if model == nil {
                     ImportPrompt(showImporter: $showImporter)
                 } else {
-                    TalkView(call: call, permissionDenied: $permissionDenied)
+                    TalkView(call: call, listener: call.listener,
+                             permissionDenied: $permissionDenied)
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -60,6 +61,9 @@ struct RootView: View {
 
 private struct TalkView: View {
     @ObservedObject var call: CallViewModel
+    /// Observed directly: `audioLevel` and `partialText` live on the listener,
+    /// and a nested ObservableObject never redraws its owner's views.
+    @ObservedObject var listener: SpeechListener
     @Binding var permissionDenied: Bool
 
     private var hasConversation: Bool {
@@ -72,17 +76,17 @@ private struct TalkView: View {
             privacyBadge
             greeting
 
-            MiraFace(phase: call.phase, level: call.listener.audioLevel)
+            MiraFace(phase: call.phase, level: listener.audioLevel)
                 .padding(.top, 2)
 
-            WaveBars(level: call.listener.audioLevel, phase: call.phase)
+            WaveBars(level: listener.audioLevel, phase: call.phase)
                 .padding(.bottom, 8)
 
-            StatusCard(call: call, permissionDenied: permissionDenied)
+            StatusCard(call: call, listener: listener, permissionDenied: permissionDenied)
                 .padding(.horizontal, 20)
 
             if hasConversation {
-                LiveTranscript(call: call).padding(.top, 10)
+                LiveTranscript(call: call, listener: listener).padding(.top, 10)
             } else {
                 Starters(call: call).padding(.top, 14)
                 Spacer(minLength: 8)
@@ -185,6 +189,7 @@ struct RoundedIconButton: View {
 /// The white card under the face: what Mira is doing, and the last thing said.
 private struct StatusCard: View {
     @ObservedObject var call: CallViewModel
+    @ObservedObject var listener: SpeechListener
     let permissionDenied: Bool
 
     var body: some View {
@@ -196,7 +201,7 @@ private struct StatusCard: View {
             }
             .foregroundStyle(label.2)
 
-            Text(body)
+            Text(message)
                 .font(.system(size: 19, weight: .bold, design: .rounded))
                 .foregroundStyle(Palette.ink)
                 .lineLimit(3)
@@ -226,11 +231,11 @@ private struct StatusCard: View {
         }
     }
 
-    private var body: String {
+    private var message: String {
         switch call.phase {
         case .loading(let message): return message
         case .listening:
-            return call.listener.partialText.isEmpty ? "I'm listening…" : call.listener.partialText
+            return listener.partialText.isEmpty ? "I'm listening…" : listener.partialText
         case .thinking:  return "Give me a second."
         case .speaking:  return call.liveMiraText.isEmpty ? "…" : call.liveMiraText
         case .failed(let message): return message
@@ -320,6 +325,7 @@ private struct TalkButton: View {
 
 private struct LiveTranscript: View {
     @ObservedObject var call: CallViewModel
+    @ObservedObject var listener: SpeechListener
 
     private var spoken: [ChatMessage] { call.transcript.filter { $0.role != .system } }
 
@@ -331,8 +337,8 @@ private struct LiveTranscript: View {
                         ChatBubble(text: message.text, isMira: message.role == .assistant)
                             .id(message.id)
                     }
-                    if call.phase == .listening, !call.listener.partialText.isEmpty {
-                        ChatBubble(text: call.listener.partialText, isMira: false)
+                    if call.phase == .listening, !listener.partialText.isEmpty {
+                        ChatBubble(text: listener.partialText, isMira: false)
                             .opacity(0.5).id("partial")
                     }
                 }
