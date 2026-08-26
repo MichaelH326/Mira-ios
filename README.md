@@ -170,6 +170,21 @@ that at the cost of re-extracting on next launch.
 For the App Store, consider **On-Demand Resources** or downloading the model on
 first launch instead, so the initial install stays small.
 
+### Which model files work
+
+Both `.gguf` and `.mdlo` open, decided by the file's magic bytes rather than
+its extension:
+
+- **`.gguf`** — what every quantiser emits (`Q8_0`, `Q4_K_M`, and so on). It is
+  used straight off disk, so unlike the container it costs no second copy.
+  Carrying no prompt or sampling settings of its own, it gets Mira's defaults.
+- **`.mdlo`** — the container from `voice/package_mdlo.py`, which carries a
+  system prompt, sampling settings and a checksum alongside the weights.
+
+Imported models keep their own filename in Documents, so several
+quantisations can sit side by side and the newest one wins. The name is also
+where the model summary comes from: `mira-Q8_0.gguf` shows as `mira · Q8_0`.
+
 ### Swapping models without rebuilding
 
 Settings ▸ *Replace with a different model…* imports a `.mdlo` from Files. An

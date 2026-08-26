@@ -392,7 +392,7 @@ private struct ImportPrompt: View {
             Text("Mira")
                 .font(.system(size: 38, weight: .heavy, design: .rounded))
                 .foregroundStyle(Palette.ink)
-            Text("Pick a model to get started.\nShe runs entirely on this phone.")
+            Text("Pick a .gguf or .mdlo model to get started.\nShe runs entirely on this phone.")
                 .multilineTextAlignment(.center)
                 .font(.system(size: 15, design: .rounded))
                 .foregroundStyle(Palette.inkSoft)
@@ -410,7 +410,7 @@ private struct ImportPrompt: View {
             }
             .buttonStyle(.plain)
             Spacer()
-            Text("Or put mira.mdlo in Files ▸ On My iPhone ▸ Mira\nand reopen the app.")
+            Text("Or drop the model into Files ▸ On My iPhone ▸ Mira\nand reopen the app.")
                 .font(.footnote)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Palette.inkFaint)

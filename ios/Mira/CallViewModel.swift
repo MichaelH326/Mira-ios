@@ -97,17 +97,15 @@ final class CallViewModel: ObservableObject {
             do {
                 // The first extraction verifies the checksum; later launches
                 // reuse the cached GGUF and skip hashing ~250 MB.
-                let file = try MDLOFile.load(from: modelURL)
+                let file = try ModelReader.load(from: modelURL)
                 await MainActor.run { self?.phase = .loading("Warming up…") }
                 let engine = try LlamaEngine(modelURL: file.modelURL)
                 await MainActor.run {
                     guard let self else { return }
                     self.engine = engine
-                    self.chat = file.header.chat
-                    self.transcript = [ChatMessage(role: .system, text: file.header.chat.systemPrompt)]
-                    let base = file.header.provenance?.baseModel ?? "custom"
-                    let quant = file.header.provenance?.quantization ?? "?"
-                    self.modelDescription = "\(base) · \(quant)"
+                    self.chat = file.chat
+                    self.transcript = [ChatMessage(role: .system, text: file.chat.systemPrompt)]
+                    self.modelDescription = file.summary
                     self.phase = .idle
                 }
             } catch {

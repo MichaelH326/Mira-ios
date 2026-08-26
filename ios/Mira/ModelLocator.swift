@@ -1,11 +1,12 @@
 import Foundation
 import UniformTypeIdentifiers
 
-/// Decides which `mira.mdlo` the app should run.
+/// Decides which model the app should run — `.gguf` or `.mdlo`.
 ///
 /// Priority:
-///   1. A model shipped inside the app bundle (`mira.mdlo` added to the target)
-///   2. A model the user imported previously (Documents/mira.mdlo)
+///   1. A model shipped inside the app bundle (`mira.gguf` or `mira.mdlo`)
+///   2. A model the user imported previously, kept in Documents under its
+///      own filename so several can sit side by side in Files
 ///
 /// Bundling means the app works the moment it launches — no file picker, no
 /// setup. Importing stays available so you can swap in a newer model without
@@ -49,15 +50,23 @@ enum ModelLocator {
         }
     }
 
-    /// Types the document picker will enable. `.mdlo` is declared in
-    /// Info.plist, but a file copied onto the device before the app was
-    /// installed can still carry a generic type, so the broader types stay in
-    /// the list — otherwise the model shows up greyed out and unselectable.
+    /// Model file extensions the app opens. GGUF is what every quantiser
+    /// emits, so it is the common case rather than the exception.
+    static let supportedExtensions = ["gguf", "mdlo"]
+
+    /// Types the document picker will enable. The declared types come first,
+    /// but a file copied onto the device before the app was installed can
+    /// still carry a generic type, so the broader ones stay in the list —
+    /// otherwise the model shows up greyed out and unselectable.
     static var pickableTypes: [UTType] {
         var types: [UTType] = []
-        if let declared = UTType("com.mira.voice.mdlo") { types.append(declared) }
-        if let byExtension = UTType(filenameExtension: "mdlo"),
-           !types.contains(byExtension) { types.append(byExtension) }
+        for identifier in ["com.mira.voice.mdlo", "org.ggml.gguf"] {
+            if let declared = UTType(identifier) { types.append(declared) }
+        }
+        for suffix in supportedExtensions {
+            if let byExtension = UTType(filenameExtension: suffix),
+               !types.contains(byExtension) { types.append(byExtension) }
+        }
         types.append(.data)
         types.append(.item)
         return types
@@ -82,27 +91,45 @@ enum ModelLocator {
     }
 
     static func bundledModel() -> URL? {
-        Bundle.main.url(forResource: "mira", withExtension: "mdlo")
+        for suffix in supportedExtensions {
+            if let url = Bundle.main.url(forResource: "mira", withExtension: suffix) {
+                return url
+            }
+        }
+        return nil
     }
 
+    /// The newest model sitting in Documents, whatever it is called. Scanning
+    /// rather than looking for one fixed name means a file dropped in through
+    /// Files ▸ On My iPhone ▸ Mira is found without being renamed first.
     static func importedModel() -> URL? {
-        guard let url = documentsModelURL(),
-              FileManager.default.fileExists(atPath: url.path) else { return nil }
-        return url
+        importedModels().first
     }
 
-    static func documentsModelURL() -> URL? {
+    static func importedModels() -> [URL] {
+        guard let directory = documentsDirectory(),
+              let entries = try? FileManager.default.contentsOfDirectory(
+                at: directory, includingPropertiesForKeys: [.contentModificationDateKey])
+        else { return [] }
+        return entries
+            .filter { supportedExtensions.contains($0.pathExtension.lowercased()) }
+            .sorted { (modificationDate($0) ?? .distantPast) > (modificationDate($1) ?? .distantPast) }
+    }
+
+    static func documentsDirectory() -> URL? {
         try? FileManager.default.url(for: .documentDirectory, in: .userDomainMask,
                                      appropriateFor: nil, create: true)
-            .appendingPathComponent("mira.mdlo")
     }
 
     /// Copies an imported file into Documents and returns its location.
     @discardableResult
     static func install(from source: URL) throws -> URL {
-        guard let destination = documentsModelURL() else {
+        guard let directory = documentsDirectory() else {
             throw CocoaError(.fileNoSuchFile)
         }
+        // Keep the file's own name: it is how the user tells one quantisation
+        // from another, and it is what the model summary is derived from.
+        let destination = directory.appendingPathComponent(source.lastPathComponent)
         // Files ▸ On My iPhone ▸ Mira writes straight into Documents, so the
         // picked file can already *be* the destination. Copying would delete
         // it first and then have nothing left to copy.
@@ -126,10 +153,11 @@ enum ModelLocator {
         return destination
     }
 
-    /// Removes an imported model, falling back to the bundled one.
+    /// Removes every imported model, falling back to the bundled one.
     static func removeImported() {
-        guard let url = importedModel() else { return }
-        try? FileManager.default.removeItem(at: url)
+        for url in importedModels() {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     /// Frees the extracted GGUF cache. The model still works afterwards — it
@@ -144,7 +172,7 @@ enum ModelLocator {
 
     static func diskUsageDescription() -> String {
         var total = 0
-        if let imported = importedModel() { total += fileSize(imported) }
+        for url in importedModels() { total += fileSize(url) }
         if let dir = try? FileManager.default.url(for: .applicationSupportDirectory,
                                                   in: .userDomainMask,
                                                   appropriateFor: nil, create: false)

@@ -71,7 +71,30 @@
 		</dict>
 	</array>
 
-	<!-- Lets Mira appear in the share sheet for a .mdlo file. -->
+	<!-- GGUF is not a system-declared type, so declare it as one we import.
+	     Without this the picker has nothing to match a .gguf against. -->
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.ggml.gguf</string>
+			<key>UTTypeDescription</key>
+			<string>GGUF Model</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>gguf</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+
+	<!-- Lets Mira appear in the share sheet for a model file. -->
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -84,6 +107,18 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>com.mira.voice.mdlo</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>GGUF Model</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>org.ggml.gguf</string>
 			</array>
 		</dict>
 	</array>
