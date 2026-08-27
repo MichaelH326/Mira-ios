@@ -74,8 +74,10 @@ private struct TalkView: View {
     @ObservedObject var listener: SpeechListener
     @Binding var permissionDenied: Bool
 
-    /// Collapsing Mira gives the transcript the whole screen. Remembered,
-    /// because whichever way you read is the way you keep reading.
+    /// The full transcript is a mode rather than the main screen: what is
+    /// being said now is captioned under Mira, and the scrollback is one tap
+    /// away. Remembered, because whichever way you read is the way you keep
+    /// reading.
     @AppStorage(Prefs.expandedKey) private var expanded = false
     @AppStorage(Prefs.nameKey) private var yourName = ""
 
@@ -85,23 +87,38 @@ private struct TalkView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            MiraHeader(call: call, expanded: $expanded)
-            if !expanded {
-                greeting
+            MiraHeader(call: call, showingTranscript: $expanded)
+
+            if expanded {
+                LiveTranscript(call: call, listener: listener)
+            } else {
+                if resting { greeting }
+                Spacer(minLength: 0)
                 MiraFace(phase: call.phase, level: listener.audioLevel)
+                CaptionBand(caption: caption)
+                Spacer(minLength: 0)
             }
 
             statusLine
-
-            if hasConversation {
-                LiveTranscript(call: call, listener: listener).padding(.top, 6)
-            } else {
-                Spacer(minLength: 8)
-            }
-
             controlRow
         }
         .animation(.easeInOut(duration: 0.25), value: expanded)
+    }
+
+    /// Nothing has happened yet — no conversation, nothing being said, nothing
+    /// wrong. The only moment the greeting is worth the line it takes.
+    private var resting: Bool {
+        !hasConversation && caption == nil && call.phase == .idle && !permissionDenied
+    }
+
+    /// Closed captions for whoever is talking: Mira's own words as she says
+    /// them, or yours as they are transcribed.
+    private var caption: Caption? {
+        if call.phase == .listening {
+            let heard = listener.partialText.trimmingCharacters(in: .whitespacesAndNewlines)
+            return heard.isEmpty ? nil : Caption.said(heard, isMira: false)
+        }
+        return call.caption
     }
 
     /// Everything reachable without shifting your grip: the three things you
@@ -146,9 +163,9 @@ private struct TalkView: View {
             .accessibilityLabel(label)
     }
 
-    /// One line, or nothing. What she is doing is already visible in how she
-    /// moves, so this only carries what the shape cannot: what you said, and
-    /// anything that went wrong.
+    /// One line, or nothing. What is being said is captioned, and what she is
+    /// doing is visible in how she moves, so this is left with only what
+    /// neither of those can show: something loading, or something wrong.
     @ViewBuilder
     private var statusLine: some View {
         if let text = status {
@@ -173,13 +190,10 @@ private struct TalkView: View {
     private var status: String? {
         if permissionDenied { return "Microphone is off — turn it on in Settings" }
         switch call.phase {
-        case .loading(let message):   return message
-        case .listening:              return listener.partialText.isEmpty ? nil : listener.partialText
-        case .failed(let message):    return message
-        case .thinking, .speaking:    return nil
-        case .idle:
-            if let notice = call.voiceNotice { return notice }
-            return hasConversation ? nil : "Tap to talk"
+        case .loading(let message):            return message
+        case .failed(let message):             return message
+        case .listening, .thinking, .speaking: return nil
+        case .idle:                            return call.voiceNotice
         }
     }
 
@@ -201,19 +215,67 @@ private struct TalkView: View {
 
 }
 
+/// Closed captions under Mira.
+///
+/// The word being said is picked out, the words before it stand in full ink,
+/// and the ones still coming are faint — so a glance tells you both what was
+/// said and where in the sentence she is. One `Text` built from an
+/// `AttributedString` rather than a row of word views, so it wraps and hyphenates
+/// the way any other paragraph does.
+private struct CaptionBand: View {
+    let caption: Caption?
+
+    /// Three lines' worth, held whether or not there is anything to say, so
+    /// Mira doesn't jump up and down the screen as she starts and stops.
+    private static let bandHeight: CGFloat = 92
+    private static let size: CGFloat = 24
+
+    var body: some View {
+        Text(styled)
+            .multilineTextAlignment(.center)
+            .lineLimit(3)
+            .minimumScaleFactor(0.72)
+            .frame(maxWidth: .infinity, minHeight: Self.bandHeight)
+            .padding(.horizontal, 26)
+            .animation(.easeOut(duration: 0.14), value: caption)
+    }
+
+    private var styled: AttributedString {
+        guard let caption, !caption.isEmpty else { return AttributedString() }
+        var line = AttributedString()
+        for (index, word) in caption.words.enumerated() {
+            var piece = AttributedString(word)
+            piece.foregroundColor = colour(at: index, in: caption)
+            piece.font = .system(size: Self.size,
+                                 weight: index == caption.index ? .heavy : .semibold,
+                                 design: .rounded)
+            line += piece
+            if index < caption.words.count - 1 { line += AttributedString(" ") }
+        }
+        return line
+    }
+
+    /// Your own words are all in the accent, since they have all been said by
+    /// the time they are transcribed; Mira's are staged.
+    private func colour(at index: Int, in caption: Caption) -> Color {
+        guard caption.isMira else { return Palette.skyInk }
+        if index == caption.index { return Palette.skyDeep }
+        return index < caption.index ? Palette.ink : Palette.inkFaint
+    }
+}
+
 private struct MiraHeader: View {
     @ObservedObject var call: CallViewModel
-    @Binding var expanded: Bool
+    @Binding var showingTranscript: Bool
     @State private var showSettings = false
 
     var body: some View {
         HStack {
-            RoundedIconButton(system: expanded ? "arrow.down.right.and.arrow.up.left"
-                                              : "arrow.up.left.and.arrow.down.right",
+            RoundedIconButton(system: showingTranscript ? "person.wave.2.fill" : "text.alignleft",
                               tint: Palette.skyInk) {
-                expanded.toggle()
+                showingTranscript.toggle()
             }
-            .accessibilityLabel(expanded ? "Show Mira" : "Expand transcript")
+            .accessibilityLabel(showingTranscript ? "Back to Mira" : "Show transcript")
             Spacer()
             Text("Mira")
                 .font(.system(size: 27, weight: .heavy, design: .rounded))
@@ -310,6 +372,20 @@ private struct LiveTranscript: View {
     private var spoken: [ChatMessage] { call.transcript.filter { $0.role != .system } }
 
     var body: some View {
+        if spoken.isEmpty && call.liveMiraText.isEmpty {
+            VStack {
+                Spacer()
+                Text("Nothing said yet.")
+                    .font(.system(size: 15, design: .rounded))
+                    .foregroundStyle(Palette.inkFaint)
+                Spacer()
+            }
+        } else {
+            scrollback
+        }
+    }
+
+    private var scrollback: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
@@ -387,7 +463,7 @@ private struct ImportPrompt: View {
     var body: some View {
         VStack(spacing: 20) {
             Spacer()
-            MiraFace(phase: .idle, level: 0)
+            MiraFace(phase: .idle, level: 0, height: 250)
             Text("Mira")
                 .font(.system(size: 38, weight: .heavy, design: .rounded))
                 .foregroundStyle(Palette.ink)

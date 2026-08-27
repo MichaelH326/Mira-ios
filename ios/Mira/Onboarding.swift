@@ -26,8 +26,7 @@ struct OnboardingView: View {
 
             VStack(spacing: 0) {
                 header
-                MiraFace(phase: previewPhase, level: 0)
-                    .frame(maxHeight: 250)
+                MiraFace(phase: previewPhase, level: 0, height: 240)
                 Spacer(minLength: 4)
                 card
                 controls

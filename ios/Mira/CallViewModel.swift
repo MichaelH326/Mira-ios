@@ -32,6 +32,10 @@ final class CallViewModel: ObservableObject {
     /// Set when Edge drops out mid-conversation, so the UI can say so.
     @Published private(set) var voiceNotice: String?
 
+    /// The sentence Mira is saying right now, word by word. The main screen
+    /// shows this instead of a scrolling transcript.
+    @Published private(set) var caption: Caption?
+
     private var engine: LlamaEngine?
     private var chat: MDLOFile.ChatConfig?
     private var generation: Task<Void, Never>?
@@ -61,8 +65,13 @@ final class CallViewModel: ObservableObject {
     }
 
     private func wireSpeaker() {
+        speaker.onCaption = { [weak self] caption in
+            self?.caption = caption
+        }
         speaker.onFinishedSpeaking = { [weak self] in
-            guard let self, self.phase == .speaking else { return }
+            guard let self else { return }
+            self.caption = nil
+            guard self.phase == .speaking else { return }
             if self.handsFree { self.beginListening() } else { self.phase = .idle }
         }
         (speaker as? EdgeVoice)?.onDegraded = { [weak self] reason in
@@ -121,6 +130,7 @@ final class CallViewModel: ObservableObject {
     func beginListening() {
         guard engine != nil else { return }
         speaker.stop()
+        caption = nil
         do {
             try listener.start { [weak self] outcome in
                 Task { @MainActor in
@@ -158,6 +168,7 @@ final class CallViewModel: ObservableObject {
         listener.stop()
         speaker.stop()
         liveMiraText = ""
+        caption = nil
         phase = .idle
     }
 

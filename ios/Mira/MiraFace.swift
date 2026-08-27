@@ -8,12 +8,22 @@ import SwiftUI
 /// carried by shape, eyes and colour, which is what makes her read as a
 /// creature rather than a face on a ball.
 ///
-/// Drawn in a `Canvas` rather than stacked shapes: the fur is 160 tapered
-/// strands per frame, which is fine imperatively and would not be as views.
+/// Two things decide whether she reads as fluffy or spiky, and both are about
+/// the strands rather than the outline: their proportions, and whether they
+/// curl. Long, thin, straight ones are spines however many you draw. Short,
+/// wide, blurred ones that bend sideways are fluff. So they are drawn in
+/// layers — a soft haze furthest out, denser texture close in — each strand a
+/// curve rather than a line.
+///
+/// Drawn in a `Canvas` rather than stacked shapes: this is several hundred
+/// strokes per frame, which is fine imperatively and would not be as views.
 struct MiraFace: View {
     let phase: CallViewModel.Phase
     /// 0…1 microphone level, only meaningful while listening.
     let level: Float
+    /// Overridable so the screens where she shares the view with something
+    /// else can give her less room than the talk screen does.
+    var height: CGFloat = MiraFace.canvasHeight
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -28,6 +38,10 @@ struct MiraFace: View {
     private static let mid = Color(red: 1.00, green: 0.937, blue: 0.878)
     private static let edge = Color(red: 0.996, green: 0.855, blue: 0.769)
 
+    /// The drawing area. She fills it — she is the screen's centrepiece, not
+    /// an illustration sitting above the controls.
+    static let canvasHeight: CGFloat = 320
+
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
             let now = timeline.date
@@ -37,19 +51,22 @@ struct MiraFace: View {
             let churn = t * churnRate
 
             Canvas { context, size in
+                let span: CGFloat = min(size.width, size.height)
                 let centre = CGPoint(x: size.width / 2,
                                      y: size.height / 2 + bob(at: t))
-                let span: CGFloat = min(size.width, size.height)
-                let base: CGFloat = span * 0.33 * (1 + poke * 0.06)
+                let base: CGFloat = span * 0.36 * (1 + poke * 0.06)
                 let outline = blob(centre: centre, radius: base, churn: churn, wobble: wobble)
 
                 // A wide soft halo, so she sits in light rather than on top of it.
                 context.drawLayer { layer in
-                    layer.addFilter(.blur(radius: 26))
-                    layer.fill(outline, with: .color(Palette.sky.opacity(0.28)))
+                    layer.addFilter(.blur(radius: 30))
+                    layer.fill(outline, with: .color(Palette.sky.opacity(0.26)))
                 }
 
-                fur(in: &context, centre: centre, radius: base, churn: churn, wobble: wobble)
+                for band in Self.furLayers {
+                    fur(band, in: &context, centre: centre,
+                        radius: base, churn: churn, wobble: wobble)
+                }
 
                 context.fill(
                     outline,
@@ -62,14 +79,20 @@ struct MiraFace: View {
                 // The softest edge: a blurred rim inside the silhouette, which
                 // is what stops it reading as a hard vector shape.
                 context.drawLayer { layer in
-                    layer.addFilter(.blur(radius: 7))
-                    layer.stroke(outline, with: .color(Self.edge.opacity(0.85)), lineWidth: 12)
+                    layer.addFilter(.blur(radius: 9))
+                    layer.stroke(outline, with: .color(Self.edge.opacity(0.85)), lineWidth: 16)
                 }
+
+                // A last pass over the rim. Fur behind the body alone leaves a
+                // clean arc where the fill ends; these break it, so the edge
+                // never resolves into a line.
+                fur(Self.topFuzz, in: &context, centre: centre,
+                    radius: base, churn: churn, wobble: wobble)
 
                 blush(in: &context, centre: centre, radius: base)
                 eyes(in: &context, centre: centre, radius: base, t: t, poke: poke)
             }
-            .frame(height: 260)
+            .frame(height: height)
             .contentShape(Rectangle())
             .onTapGesture { pokedAt = Date() }
         }
@@ -91,28 +114,31 @@ struct MiraFace: View {
     /// How far it deviates from a circle.
     private func wobbleAmount(poke: CGFloat) -> CGFloat {
         var amount: CGFloat = {
-            if isListening { return 0.45 + CGFloat(min(max(level, 0), 1)) * 0.95 }
-            if isSpeaking { return 1.0 }
-            if isThinking { return 0.7 }
-            if case .failed = phase { return 0.25 }
-            return 0.42
+            if isListening { return 0.40 + CGFloat(min(max(level, 0), 1)) * 0.80 }
+            if isSpeaking { return 0.85 }
+            if isThinking { return 0.62 }
+            if case .failed = phase { return 0.22 }
+            return 0.38
         }()
-        amount += poke * 0.9
+        amount += poke * 0.8
         return amount
     }
 
-    /// How far the rim deviates from a circle at one angle: four harmonics,
-    /// each drifting at its own rate so the shape never repeats visibly.
+    /// How far the rim deviates from a circle at one angle.
+    ///
+    /// Three low harmonics, each drifting at its own rate so the shape never
+    /// repeats visibly. Low is the whole point: a high harmonic puts many
+    /// small lobes around the rim, and small lobes are points. Three slow ones
+    /// give a few broad swells instead, which is what a soft body does.
     ///
     /// Every term is its own annotated constant on purpose. Written as one
     /// summed expression mixing CGFloat and Double, this defeated the type
     /// checker — `cos` alone is ambiguous between two overloads.
     private func deviation(angle: Double, churn: Double) -> Double {
-        let first: Double = 0.075 * sin(3 * angle + churn)
-        let second: Double = 0.048 * sin(5 * angle - churn * 1.35)
-        let third: Double = 0.030 * sin(7 * angle + churn * 0.7)
-        let fourth: Double = 0.020 * sin(11 * angle - churn * 0.5)
-        return first + second + third + fourth
+        let first: Double = 0.072 * sin(2 * angle + churn)
+        let second: Double = 0.046 * sin(3 * angle - churn * 1.3)
+        let third: Double = 0.021 * sin(5 * angle + churn * 0.7)
+        return first + second + third
     }
 
     /// The rim radius at one angle.
@@ -156,45 +182,100 @@ struct MiraFace: View {
         CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
     }
 
-    /// Tapered strands radiating from just inside the rim. Lengths and angles
-    /// come from a hash of the index, so the fluff is irregular but identical
-    /// frame to frame — random per frame would boil.
-    private func fur(in context: inout GraphicsContext, centre: CGPoint,
-                     radius: CGFloat, churn: Double, wobble: CGFloat) {
-        let strands = 160
-        context.drawLayer { layer in
-            layer.addFilter(.blur(radius: 0.7))
-            for index in 0..<strands {
-                let seed: Double = Double(index)
-                let jitter: Double = (noise(seed) - 0.5) * 0.055
-                let angle: Double = seed / Double(strands) * 2 * .pi + jitter
+    // MARK: - Fur
+
+    /// One band of strands. Furthest out is longest, widest, faintest and most
+    /// blurred; closest in is short, dense and nearly sharp. Reading the three
+    /// bands top to bottom is reading the profile of the fluff.
+    private struct FurLayer {
+        let count: Int
+        /// Strand length as a fraction of the radius.
+        let minLength: Double
+        let maxLength: Double
+        let minWidth: CGFloat
+        let maxWidth: CGFloat
+        let minAlpha: Double
+        let maxAlpha: Double
+        let blur: CGFloat
+        /// How far a strand bends, in radians. The outer ones bend most.
+        let curl: Double
+        /// Offsets the hash, so the bands don't sit on each other's strands.
+        let seedOffset: Double
+    }
+
+    private static let furLayers: [FurLayer] = [
+        FurLayer(count: 90, minLength: 0.13, maxLength: 0.24,
+                 minWidth: 3.0, maxWidth: 6.0, minAlpha: 0.10, maxAlpha: 0.24,
+                 blur: 6.0, curl: 0.34, seedOffset: 0),
+        FurLayer(count: 130, minLength: 0.07, maxLength: 0.15,
+                 minWidth: 2.2, maxWidth: 4.2, minAlpha: 0.20, maxAlpha: 0.40,
+                 blur: 2.6, curl: 0.24, seedOffset: 500),
+        FurLayer(count: 150, minLength: 0.035, maxLength: 0.085,
+                 minWidth: 1.6, maxWidth: 3.0, minAlpha: 0.28, maxAlpha: 0.52,
+                 blur: 1.0, curl: 0.16, seedOffset: 1000)
+    ]
+
+    /// Drawn over the body rather than behind it, to break the rim.
+    private static let topFuzz = FurLayer(count: 110, minLength: 0.03, maxLength: 0.075,
+                                          minWidth: 1.8, maxWidth: 3.4,
+                                          minAlpha: 0.30, maxAlpha: 0.55,
+                                          blur: 1.6, curl: 0.20, seedOffset: 2000)
+
+    /// Strands rooted just inside the rim, curving outward.
+    ///
+    /// Lengths, widths and angles all come from a hash of the index, so the
+    /// fluff is irregular but identical frame to frame — re-randomising each
+    /// frame makes it boil.
+    private func fur(_ band: FurLayer, in context: inout GraphicsContext,
+                     centre: CGPoint, radius: CGFloat,
+                     churn: Double, wobble: CGFloat) {
+        context.drawLayer { canvas in
+            canvas.addFilter(.blur(radius: band.blur))
+            for index in 0..<band.count {
+                let seed: Double = Double(index) + band.seedOffset
+                let jitter: Double = (noise(seed) - 0.5) * 0.09
+                let angle: Double = Double(index) / Double(band.count) * 2 * .pi + jitter
                 let edgeRadius: CGFloat = self.rim(angle: angle, radius: radius,
                                                    churn: churn, wobble: wobble)
 
-                let lengthFactor: Double = 0.10 + noise(seed * 3.1) * 0.20
+                let lengthSpan: Double = band.maxLength - band.minLength
+                let lengthFactor: Double = band.minLength + noise(seed * 3.1) * lengthSpan
                 let length: CGFloat = radius * CGFloat(lengthFactor)
-                let innerFactor: Double = 0.86 + noise(seed * 7.7) * 0.08
+                let innerFactor: Double = 0.90 + noise(seed * 7.7) * 0.07
                 let inner: CGFloat = edgeRadius * CGFloat(innerFactor)
-                let sway: Double = sin(churn * 1.6 + seed * 0.35) * 0.03
                 let outer: CGFloat = edgeRadius + length
+
+                // The strand bends: its tip sits at a different angle from its
+                // root, and the control point between them is offset part of
+                // the way. That curve is what separates fluff from a spine.
+                let sway: Double = sin(churn * 1.4 + seed * 0.35) * 0.035
+                let bend: Double = (noise(seed * 4.3) - 0.5) * band.curl
+                let tipAngle: Double = angle + sway + bend
+                let midAngle: Double = angle + sway + bend * 0.35
+                let midRadius: CGFloat = (inner + outer) / 2
 
                 let startX: CGFloat = centre.x + CGFloat(cos(angle)) * inner
                 let startY: CGFloat = centre.y + CGFloat(sin(angle)) * inner
-                let endX: CGFloat = centre.x + CGFloat(cos(angle + sway)) * outer
-                let endY: CGFloat = centre.y + CGFloat(sin(angle + sway)) * outer
+                let midX: CGFloat = centre.x + CGFloat(cos(midAngle)) * midRadius
+                let midY: CGFloat = centre.y + CGFloat(sin(midAngle)) * midRadius
+                let tipX: CGFloat = centre.x + CGFloat(cos(tipAngle)) * outer
+                let tipY: CGFloat = centre.y + CGFloat(sin(tipAngle)) * outer
 
                 var strand = Path()
                 strand.move(to: CGPoint(x: startX, y: startY))
-                strand.addLine(to: CGPoint(x: endX, y: endY))
+                strand.addQuadCurve(to: CGPoint(x: tipX, y: tipY),
+                                    control: CGPoint(x: midX, y: midY))
 
-                let pale: Bool = noise(seed * 2.3) > 0.45
+                let pale: Bool = noise(seed * 2.3) > 0.42
                 let tint: Color = pale ? Self.core : Self.edge
-                let alpha: Double = 0.35 + noise(seed * 5.9) * 0.45
-                let thickness: CGFloat = 0.7 + CGFloat(noise(seed * 1.7)) * 1.1
+                let alphaSpan: Double = band.maxAlpha - band.minAlpha
+                let alpha: Double = band.minAlpha + noise(seed * 5.9) * alphaSpan
+                let widthSpan: CGFloat = band.maxWidth - band.minWidth
+                let thickness: CGFloat = band.minWidth + CGFloat(noise(seed * 1.7)) * widthSpan
 
-                layer.stroke(strand,
-                             with: .color(tint.opacity(alpha)),
-                             style: StrokeStyle(lineWidth: thickness, lineCap: .round))
+                canvas.stroke(strand,
+                              with: .color(tint.opacity(alpha)),
+                              style: StrokeStyle(lineWidth: thickness, lineCap: .round))
             }
         }
     }
@@ -209,11 +290,13 @@ struct MiraFace: View {
 
     private func blush(in context: inout GraphicsContext, centre: CGPoint, radius: CGFloat) {
         context.drawLayer { layer in
-            layer.addFilter(.blur(radius: 9))
+            layer.addFilter(.blur(radius: 11))
             for side in [-1.0, 1.0] as [CGFloat] {
-                let x: CGFloat = centre.x + side * radius * 0.46 - 17
+                let width: CGFloat = radius * 0.30
+                let height: CGFloat = radius * 0.17
+                let x: CGFloat = centre.x + side * radius * 0.46 - width / 2
                 let y: CGFloat = centre.y + radius * 0.20
-                let rect = CGRect(x: x, y: y, width: 34, height: 19)
+                let rect = CGRect(x: x, y: y, width: width, height: height)
                 layer.fill(Path(ellipseIn: rect), with: .color(Palette.cheek.opacity(0.34)))
             }
         }

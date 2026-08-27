@@ -33,6 +33,15 @@ final class KokoroVoice: VoiceOutput {
         set { queue.onDrained = newValue }
     }
 
+    /// Kokoro reports no word boundaries, so the caption's timings are
+    /// estimated from each sentence's own duration.
+    var onCaption: ((Caption?) -> Void)?
+
+    /// Captions are chained the same way synthesis is, so each sentence's
+    /// caption begins as the one before it stops — which is when its audio
+    /// starts playing.
+    private var captionTail: Task<Void, Never>?
+
     var describedVoice: String { "Kokoro · voice \(KokoroVoice.chosenSpeaker + 1)" }
 
     /// Read at synthesis time rather than held, so a change in Settings
@@ -62,6 +71,8 @@ final class KokoroVoice: VoiceOutput {
 
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: format)
+        player.volume = 1
+        engine.mainMixerNode.outputVolume = 1
     }
 
     func setExpectingMore(_ expecting: Bool) {
@@ -83,7 +94,7 @@ final class KokoroVoice: VoiceOutput {
             let samples = await self.synthesizer.synthesize(
                 spoken, speaker: KokoroVoice.chosenSpeaker, speed: KokoroVoice.chosenSpeed)
             guard !Task.isCancelled, self.generation == token else { return }
-            self.play(samples)
+            self.play(samples, saying: spoken)
         }
     }
 
@@ -93,10 +104,13 @@ final class KokoroVoice: VoiceOutput {
         tail = nil
         player.stop()
         if engine.isRunning { engine.stop() }
+        captionTail?.cancel()
+        captionTail = nil
+        onCaption?(nil)
         queue.reset()
     }
 
-    private func play(_ samples: [Float]) {
+    private func play(_ samples: [Float], saying text: String) {
         guard !samples.isEmpty else {
             // Synthesis failed or produced nothing — don't strand the count.
             queue.finishedOne()
@@ -109,8 +123,12 @@ final class KokoroVoice: VoiceOutput {
             return
         }
         buffer.frameLength = AVAudioFrameCount(samples.count)
+        let gain = Self.gain(for: samples)
         samples.withUnsafeBufferPointer { source in
             channel.update(from: source.baseAddress!, count: samples.count)
+        }
+        if gain != 1 {
+            for index in 0..<samples.count { channel[index] *= gain }
         }
 
         do {
@@ -120,20 +138,53 @@ final class KokoroVoice: VoiceOutput {
             return
         }
 
+        startCaption(for: text,
+                     duration: Double(samples.count) / synthesizer.sampleRate)
+
         player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             Task { @MainActor in self?.queue.finishedOne() }
         }
         if !player.isPlaying { player.play() }
     }
 
+    /// Normalises a sentence so it plays at a consistent, full level.
+    ///
+    /// Kokoro's output peaks well below full scale and varies sentence to
+    /// sentence, which is the other half of why Mira was quiet. The gain is
+    /// capped so a near-silent buffer is not amplified into its own noise
+    /// floor, and the target leaves headroom so nothing clips.
+    private static func gain(for samples: [Float]) -> Float {
+        let peak = samples.reduce(Float(0)) { max($0, abs($1)) }
+        guard peak > 0.01 else { return 1 }
+        return min(0.95 / peak, 6)
+    }
+
+    /// Runs this sentence's caption after the previous sentence's, which is
+    /// when its audio starts.
+    private func startCaption(for text: String, duration: TimeInterval) {
+        let words = Caption.words(in: text)
+        guard !words.isEmpty, duration > 0 else { return }
+        let starts = CaptionClock.estimatedStarts(for: words, duration: duration)
+
+        let previous = captionTail
+        let token = generation
+        captionTail = Task { [weak self] in
+            _ = await previous?.value
+            guard let self, !Task.isCancelled, self.generation == token else { return }
+            self.onCaption?(Caption(words: words, index: 0, isMira: true))
+            await CaptionClock.walk(starts: starts, endsAt: duration) { index in
+                guard self.generation == token else { return }
+                self.onCaption?(Caption(words: words, index: index, isMira: true))
+            }
+        }
+    }
+
     private func startEngineIfNeeded() throws {
         guard !engine.isRunning else { return }
         // The session is normally already configured by SpeechListener, but
-        // Mira can speak before anyone has spoken to her.
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .voiceChat,
-                                options: [.duckOthers, .defaultToSpeaker, .allowBluetooth])
-        try session.setActive(true, options: .notifyOthersOnDeactivation)
+        // Mira can speak before anyone has spoken to her — and it has to be
+        // the playback configuration either way, not the recording one.
+        AudioSession.beginPlayback()
         engine.prepare()
         try engine.start()
     }

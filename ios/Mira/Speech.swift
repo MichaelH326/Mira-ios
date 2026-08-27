@@ -99,10 +99,7 @@ final class SpeechListener: NSObject, ObservableObject {
         self.onTurn = onTurn
         partialText = ""
 
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .voiceChat,
-                                options: [.duckOthers, .defaultToSpeaker, .allowBluetooth])
-        try session.setActive(true, options: .notifyOthersOnDeactivation)
+        try AudioSession.beginRecording()
 
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
@@ -298,6 +295,10 @@ final class Speaker: NSObject, VoiceOutput, AVSpeechSynthesizerDelegate {
         Self.preferredVoice().map { "Apple · \($0.name)" } ?? "Apple"
     }
 
+    /// Apple reports the exact range it is about to speak, so this caption
+    /// needs no timing estimate at all.
+    var onCaption: ((Caption?) -> Void)?
+
     override init() {
         super.init()
         synthesizer.delegate = self
@@ -322,6 +323,7 @@ final class Speaker: NSObject, VoiceOutput, AVSpeechSynthesizerDelegate {
 
     func stop() {
         synthesizer.stopSpeaking(at: .immediate)
+        onCaption?(nil)
         queue.reset()
     }
 
@@ -331,6 +333,21 @@ final class Speaker: NSObject, VoiceOutput, AVSpeechSynthesizerDelegate {
         if let premium = voices.first(where: { $0.quality == .premium }) { return premium }
         if let enhanced = voices.first(where: { $0.quality == .enhanced }) { return enhanced }
         return AVSpeechSynthesisVoice(language: "en-US")
+    }
+
+    /// The caption follows the synthesizer's own word ranges: the index is
+    /// how many word breaks precede the range it is about to speak.
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                                       willSpeakRangeOfSpeechString range: NSRange,
+                                       utterance: AVSpeechUtterance) {
+        let text = utterance.speechString
+        guard let bounds = Range(range, in: text) else { return }
+        let words = Caption.words(in: text)
+        let index = Caption.words(in: String(text[text.startIndex..<bounds.lowerBound])).count
+        guard index < words.count else { return }
+        Task { @MainActor in
+            self.onCaption?(Caption(words: words, index: index, isMira: true))
+        }
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,

@@ -36,6 +36,14 @@ enum EdgeSpeech {
         }
     }
 
+    /// One word boundary reported by the service, in seconds from the start
+    /// of the audio. This is what makes Mira's captions land on the right
+    /// word rather than an estimate of it.
+    struct Mark: Equatable {
+        let text: String
+        let offset: TimeInterval
+    }
+
     enum EdgeError: LocalizedError {
         case badResponse(Int)
         case noAudio
@@ -109,8 +117,10 @@ enum EdgeSpeech {
 
     // MARK: - Synthesis
 
-    /// Returns MP3 bytes for one sentence.
-    static func synthesize(_ text: String, voice: String, ratePercent: Int) async throws -> Data {
+    /// Returns MP3 bytes for one sentence, with the service's word
+    /// boundaries alongside them.
+    static func synthesize(_ text: String, voice: String,
+                           ratePercent: Int) async throws -> (audio: Data, marks: [Mark]) {
         var components = URLComponents(
             string: "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1")!
         components.queryItems = [
@@ -136,7 +146,7 @@ enum EdgeSpeech {
         Content-Type:application/json; charset=utf-8\r\n\
         Path:speech.config\r\n\r\n\
         {"context":{"synthesis":{"audio":{"metadataoptions":\
-        {"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},\
+        {"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"true"},\
         "outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}
         """
         let ssml = """
@@ -159,6 +169,7 @@ enum EdgeSpeech {
         }
 
         var audio = Data()
+        var marks: [Mark] = []
         // Bounded so a service that never sends turn.end cannot hang a turn.
         for _ in 0..<4096 {
             let message: URLSessionWebSocketTask.Message
@@ -170,9 +181,12 @@ enum EdgeSpeech {
             }
             switch message {
             case .string(let text):
+                if text.contains("Path:audio.metadata") {
+                    marks.append(contentsOf: parseMarks(text))
+                }
                 if text.contains("Path:turn.end") {
                     guard !audio.isEmpty else { throw EdgeError.noAudio }
-                    return audio
+                    return (audio, marks)
                 }
             case .data(let frame):
                 // Each binary frame is a two-byte big-endian header length,
@@ -188,7 +202,29 @@ enum EdgeSpeech {
             }
         }
         guard !audio.isEmpty else { throw EdgeError.noAudio }
-        return audio
+        return (audio, marks)
+    }
+
+    /// Pulls WordBoundary events out of one `audio.metadata` frame.
+    ///
+    /// The frame is the usual headers, a blank line, then JSON. Offsets are
+    /// Windows-style 100-nanosecond ticks from the start of the audio. This
+    /// is best-effort on purpose: metadata Mira cannot parse costs her an
+    /// exact caption, not the sentence, so anything unexpected is skipped.
+    private static func parseMarks(_ frame: String) -> [Mark] {
+        guard let separator = frame.range(of: "\r\n\r\n") else { return [] }
+        let body = Data(frame[separator.upperBound...].utf8)
+        guard let root = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let entries = root["Metadata"] as? [[String: Any]] else { return [] }
+
+        return entries.compactMap { entry in
+            guard entry["Type"] as? String == "WordBoundary",
+                  let data = entry["Data"] as? [String: Any],
+                  let ticks = data["Offset"] as? Double,
+                  let text = data["text"] as? [String: Any],
+                  let word = text["Text"] as? String else { return nil }
+            return Mark(text: word, offset: ticks / 10_000_000)
+        }
     }
 
     private static func escape(_ text: String) -> String {
@@ -220,6 +256,14 @@ final class EdgeVoice: NSObject, VoiceOutput, AVAudioPlayerDelegate {
 
     /// Called when Edge fails and the on-device voice takes over.
     var onDegraded: ((String) -> Void)?
+
+    /// Captions come from the service's own word boundaries, so they land on
+    /// the word actually being said. When the fallback takes over, its
+    /// captions are forwarded instead.
+    var onCaption: ((Caption?) -> Void)? {
+        didSet { fallback.onCaption = onCaption }
+    }
+    private var captionTask: Task<Void, Never>?
 
     init(fallback: any VoiceOutput) {
         self.fallback = fallback
@@ -258,10 +302,10 @@ final class EdgeVoice: NSObject, VoiceOutput, AVAudioPlayerDelegate {
             guard let self, !Task.isCancelled, self.generation == token else { return }
             do {
                 let voice = await self.currentVoice()
-                let data = try await EdgeSpeech.synthesize(spoken, voice: voice,
-                                                           ratePercent: Self.ratePercent)
+                let result = try await EdgeSpeech.synthesize(spoken, voice: voice,
+                                                             ratePercent: Self.ratePercent)
                 guard !Task.isCancelled, self.generation == token else { return }
-                await self.play(data)
+                await self.play(result.audio, saying: sentence, marks: result.marks)
                 self.queue.finishedOne()
             } catch {
                 guard !Task.isCancelled, self.generation == token else { return }
@@ -277,6 +321,9 @@ final class EdgeVoice: NSObject, VoiceOutput, AVAudioPlayerDelegate {
         tail = nil
         player?.stop()
         player = nil
+        captionTask?.cancel()
+        captionTask = nil
+        onCaption?(nil)
         resumePlayback()
         queue.reset()
         fallback.stop()
@@ -317,22 +364,53 @@ final class EdgeVoice: NSObject, VoiceOutput, AVAudioPlayerDelegate {
         onDegraded?(reason)
     }
 
-    private func play(_ data: Data) async {
+    /// Plays one sentence and returns when it has finished. Playback is
+    /// already serialized by the `tail` chain, so the caption can simply run
+    /// alongside this one sentence rather than needing a chain of its own.
+    private func play(_ data: Data, saying text: String, marks: [EdgeSpeech.Mark]) async {
         do {
-            let session = AVAudioSession.sharedInstance()
-            try? session.setCategory(.playAndRecord, mode: .voiceChat,
-                                     options: [.duckOthers, .defaultToSpeaker, .allowBluetooth])
-            try? session.setActive(true, options: .notifyOthersOnDeactivation)
+            AudioSession.beginPlayback()
 
             let audio = try AVAudioPlayer(data: data)
             audio.delegate = self
+            audio.volume = 1
             player = audio
+            startCaption(for: text, marks: marks, duration: audio.duration)
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 playbackFinished = continuation
                 if !audio.play() { resumePlayback() }
             }
         } catch {
             resumePlayback()
+        }
+        captionTask?.cancel()
+        captionTask = nil
+    }
+
+    /// Uses the service's word boundaries when they line up with the words
+    /// being shown, and estimated timings when they don't.
+    ///
+    /// They can disagree: the text sent for synthesis is stripped for speech,
+    /// and the service splits on its own rules. Rather than try to reconcile
+    /// two different word lists, a mismatched count falls back to the
+    /// estimate — a caption slightly out of step beats one on the wrong word.
+    private func startCaption(for text: String, marks: [EdgeSpeech.Mark],
+                              duration: TimeInterval) {
+        let words = Caption.words(in: text)
+        guard !words.isEmpty, duration > 0 else { return }
+
+        let starts = marks.count == words.count
+            ? marks.map(\.offset)
+            : CaptionClock.estimatedStarts(for: words, duration: duration)
+        guard !starts.isEmpty else { return }
+
+        let token = generation
+        onCaption?(Caption(words: words, index: 0, isMira: true))
+        captionTask = Task { [weak self] in
+            await CaptionClock.walk(starts: starts, endsAt: duration) { index in
+                guard let self, self.generation == token, !self.degraded else { return }
+                self.onCaption?(Caption(words: words, index: index, isMira: true))
+            }
         }
     }
 

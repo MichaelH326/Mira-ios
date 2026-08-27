@@ -15,6 +15,10 @@ protocol VoiceOutput: AnyObject {
     /// A short label for the engine in Settings.
     var describedVoice: String { get }
 
+    /// Reports the sentence being spoken and how far through it the audio is,
+    /// for the caption on the main screen. `nil` when nothing is being said.
+    var onCaption: ((Caption?) -> Void)? { get set }
+
     /// `true` while a reply is still generating, so the gap between two
     /// sentences isn't mistaken for the end of Mira's turn.
     func setExpectingMore(_ expecting: Bool)
