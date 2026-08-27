@@ -14,12 +14,20 @@ struct RootView: View {
     @State private var model: ModelLocator.Source?
     @State private var permissionDenied = false
 
+    /// Held here, not because this view draws with it, but because Palette
+    /// reads the theme at draw time — observing it is what makes a colour
+    /// change re-render everything below.
+    @AppStorage(Prefs.themeKey) private var theme = Theme.butter.rawValue
+    @AppStorage(Prefs.onboardedKey) private var onboarded = false
+
     var body: some View {
         NavigationStack {
             ZStack {
                 Palette.background.ignoresSafeArea()
                 if model == nil {
                     ImportPrompt(showImporter: $showImporter)
+                } else if !onboarded {
+                    OnboardingView(call: call) { onboarded = true }
                 } else {
                     TalkView(call: call, listener: call.listener,
                              permissionDenied: $permissionDenied)
@@ -69,6 +77,7 @@ private struct TalkView: View {
     /// Collapsing Mira gives the transcript the whole screen. Remembered,
     /// because whichever way you read is the way you keep reading.
     @AppStorage(Prefs.expandedKey) private var expanded = false
+    @AppStorage(Prefs.nameKey) private var yourName = ""
 
     private var hasConversation: Bool {
         call.transcript.contains { $0.role != .system } || !call.liveMiraText.isEmpty
@@ -175,7 +184,7 @@ private struct TalkView: View {
     }
 
     private var greeting: some View {
-        Text(Self.timeGreeting)
+        Text(yourName.isEmpty ? Self.timeGreeting : "\(Self.timeGreeting), \(yourName)")
             .font(.system(size: 15, weight: .medium, design: .rounded))
             .foregroundStyle(Palette.inkSoft)
             .padding(.top, 10)

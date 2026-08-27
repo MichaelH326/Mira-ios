@@ -11,6 +11,9 @@ enum Prefs {
     static let engineKey = "mira.voice.engine"
     static let edgeVoiceKey = "mira.voice.edgeName"
     static let expandedKey = "mira.transcript.expanded"
+    static let themeKey = "mira.theme"
+    static let nameKey = "mira.yourName"
+    static let onboardedKey = "mira.onboarded"
 }
 
 struct SettingsView: View {
@@ -22,6 +25,8 @@ struct SettingsView: View {
     @AppStorage(Prefs.hapticsKey) private var haptics = true
     @AppStorage(Prefs.engineKey) private var engine = "edge"
     @AppStorage(Prefs.edgeVoiceKey) private var edgeVoice = "Rosa"
+    @AppStorage(Prefs.themeKey) private var theme = Theme.butter.rawValue
+    @AppStorage(Prefs.nameKey) private var yourName = ""
 
     @State private var showImporter = false
     @State private var exporting = false
@@ -33,6 +38,7 @@ struct SettingsView: View {
                 ScrollView {
                     VStack(spacing: 16) {
                         header
+                        appearanceCard
                         voiceCard
                         privacyCard
                         modelCard
@@ -62,6 +68,41 @@ struct SettingsView: View {
     }
 
     // MARK: - Cards
+
+    private var appearanceCard: some View {
+        Card(icon: "paintpalette.fill", tint: Palette.powder,
+             title: "Appearance", subtitle: "COLOUR SCHEME") {
+            HStack(spacing: 10) {
+                ForEach(Theme.allCases) { option in
+                    Button { theme = option.rawValue } label: {
+                        ZStack {
+                            Circle()
+                                .fill(LinearGradient(colors: [option.groundTop, option.groundBottom],
+                                                     startPoint: .top, endPoint: .bottom))
+                                .frame(width: 40, height: 40)
+                            Circle().fill(option.accent).frame(width: 17, height: 17)
+                        }
+                        .overlay(
+                            Circle().strokeBorder(
+                                theme == option.rawValue ? option.accentDeep : .clear,
+                                lineWidth: 2.5)
+                                .frame(width: 48, height: 48)
+                        )
+                        .frame(maxWidth: .infinity)
+                        .accessibilityLabel(option.name)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            row("Your name") {
+                TextField("Optional", text: $yourName)
+                    .multilineTextAlignment(.trailing)
+                    .textInputAutocapitalization(.words)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Palette.ink)
+            }
+        }
+    }
 
     private var voiceCard: some View {
         Card(icon: "speaker.wave.2.fill", tint: Palette.powder,

@@ -1,11 +1,14 @@
 import SwiftUI
 
-/// Mira herself: a soft pastel face that blinks, breathes, and moves her mouth
-/// while she talks.
+/// Mira herself.
 ///
-/// Everything is a function of the clock and the current phase, driven from a
-/// single `TimelineView`. Repeating animations were the alternative and they
-/// strand themselves against a stale phase the moment the state changes.
+/// A chibi character rather than a face on a ball: the head is a squircle, not
+/// a circle, which is most of why the old orb read as an orb. Hair takes the
+/// theme's accent, so choosing a colour scheme recolours her too.
+///
+/// Everything is a function of the clock and the current phase, from one
+/// `TimelineView`. Repeating animations were the alternative and they strand
+/// themselves against a stale phase the moment the state changes.
 struct MiraFace: View {
     let phase: CallViewModel.Phase
     /// 0…1 microphone level, only meaningful while listening.
@@ -13,7 +16,13 @@ struct MiraFace: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let size: CGFloat = 198
+    /// Set when she's tapped. She reacts for a moment, then settles.
+    @State private var pokedAt: Date?
+
+    private let headWidth: CGFloat = 148
+    private let headHeight: CGFloat = 136
+
+    private static let skin = Color(red: 1.00, green: 0.937, blue: 0.898)
 
     private var isListening: Bool { phase == .listening }
     private var isSpeaking: Bool { phase == .speaking }
@@ -21,127 +30,225 @@ struct MiraFace: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
-            let t = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
-            let breath = self.breath(at: t)
+            let now = timeline.date
+            let t = reduceMotion ? 0 : now.timeIntervalSinceReferenceDate
+            let poke = pokeStrength(at: now)
 
             ZStack {
-                // Ambient glow
-                Circle()
-                    .fill(
-                        RadialGradient(colors: [Palette.sky.opacity(0.38), .clear],
-                                       center: .center, startRadius: 40, endRadius: 150)
-                    )
-                    .frame(width: size * 1.5, height: size * 1.5)
-                    .scaleEffect(breath * 1.02)
-                    .blur(radius: 12)
-
-                // The face
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: faceColors,
-                            center: UnitPoint(x: 0.34, y: 0.28),
-                            startRadius: 6, endRadius: size * 0.78
-                        )
-                    )
-                    .frame(width: size, height: size)
-                    .overlay(
-                        Circle().strokeBorder(Color.white.opacity(0.55), lineWidth: 1.5)
-                    )
-                    .shadow(color: Palette.shadow, radius: 26, y: 12)
-                    .scaleEffect(breath)
-
-                features(at: t)
-                    .scaleEffect(breath)
-
+                groundShadow(at: t)
                 sparkles(at: t)
+
+                ZStack {
+                    body(at: t)
+                    backHair
+                    head(at: t, poke: poke)
+                    sideHair
+                    ahoge(at: t)
+                }
+                .rotationEffect(.degrees(tilt(at: t)), anchor: .bottom)
+                .offset(y: bob(at: t))
+                .scaleEffect(x: 1 + poke * 0.10, y: 1 - poke * 0.10, anchor: .bottom)
             }
-            .frame(width: size * 1.42, height: size * 1.18)
+            .frame(width: 268, height: 250)
+            .contentShape(Rectangle())
+            .onTapGesture { pokedAt = Date() }
         }
-        .accessibilityHidden(true)
+        .accessibilityLabel("Mira")
+        .accessibilityHint("Tap to say hello")
     }
 
-    private var faceColors: [Color] {
-        switch phase {
-        case .listening: return [.white.opacity(0.95), Palette.powder, Palette.sky]
-        case .thinking:  return [.white.opacity(0.95), Palette.butterDeep, Palette.powder]
-        case .speaking:  return [.white.opacity(0.95), Palette.peach, Palette.sky.opacity(0.75)]
-        case .failed:    return [.white.opacity(0.9), Palette.peach.opacity(0.7), Palette.inkFaint.opacity(0.5)]
-        default:         return [.white.opacity(0.95), Palette.peach, Palette.powder]
+    // MARK: - Parts
+
+    private func groundShadow(at t: Double) -> some View {
+        Ellipse()
+            .fill(Palette.shadow)
+            .frame(width: 116 - CGFloat(abs(sin(t / 1.7))) * 10, height: 16)
+            .blur(radius: 7)
+            .offset(y: 108)
+    }
+
+    private func body(at t: Double) -> some View {
+        // A small rounded torso, deliberately half the head's width: the big
+        // head to little body ratio is what makes a chibi read as one.
+        RoundedRectangle(cornerRadius: 30, style: .continuous)
+            .fill(
+                LinearGradient(colors: [Palette.sky, Palette.skyDeep],
+                               startPoint: .top, endPoint: .bottom)
+            )
+            .frame(width: 96, height: 74)
+            .overlay(
+                // Collar
+                Capsule()
+                    .fill(Color.white.opacity(0.85))
+                    .frame(width: 46, height: 12)
+                    .offset(y: -26)
+            )
+            .offset(y: 74)
+    }
+
+    private var backHair: some View {
+        RoundedRectangle(cornerRadius: 66, style: .continuous)
+            .fill(Palette.hair)
+            .frame(width: headWidth + 22, height: headHeight + 18)
+            .offset(y: 4)
+    }
+
+    private func head(at t: Double, poke: CGFloat) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 62, style: .continuous)
+        return shape
+            .fill(
+                RadialGradient(colors: [.white, Self.skin],
+                               center: UnitPoint(x: 0.36, y: 0.30),
+                               startRadius: 4, endRadius: headWidth * 0.8)
+            )
+            .frame(width: headWidth, height: headHeight)
+            .overlay(bangs.clipShape(shape))
+            .overlay(features(at: t, poke: poke))
+            .shadow(color: Palette.shadowSoft, radius: 10, y: 6)
+    }
+
+    /// A fringe built from three overlapping sweeps rather than one hand-tuned
+    /// path — far easier to keep symmetrical, and it clips to the head.
+    private var bangs: some View {
+        ZStack {
+            Ellipse()
+                .fill(Palette.hair)
+                .frame(width: headWidth + 10, height: 104)
+                .offset(y: -58)
+            Ellipse()
+                .fill(Palette.hair)
+                .frame(width: 74, height: 92)
+                .offset(x: -44, y: -34)
+            Ellipse()
+                .fill(Palette.hair)
+                .frame(width: 74, height: 92)
+                .offset(x: 44, y: -34)
+            // A lighter sheen across the fringe, the way hair is drawn in cel
+            // shading — a single band, not a gradient.
+            Capsule()
+                .fill(Palette.hairLight.opacity(0.55))
+                .frame(width: 86, height: 9)
+                .offset(y: -50)
         }
     }
 
-    // MARK: - Face
+    private var sideHair: some View {
+        HStack(spacing: headWidth - 16) {
+            Capsule().fill(Palette.hair).frame(width: 26, height: 92)
+            Capsule().fill(Palette.hair).frame(width: 26, height: 92)
+        }
+        .offset(y: 22)
+    }
+
+    /// The cowlick. It sways on its own and flicks when she's thinking, which
+    /// does more for "alive" than any amount of easing on the body.
+    private func ahoge(at t: Double) -> some View {
+        let sway = sin(t * (isThinking ? 3.4 : 1.5)) * (isThinking ? 16 : 8)
+        return AhogeShape()
+            .stroke(Palette.hair, style: StrokeStyle(lineWidth: 7, lineCap: .round))
+            .frame(width: 44, height: 40)
+            .rotationEffect(.degrees(sway), anchor: .bottomLeading)
+            .offset(x: 10, y: -84)
+    }
 
     @ViewBuilder
-    private func features(at t: Double) -> some View {
-        let blink = self.blink(at: t)
-        let tilt = isThinking ? sin(t * 1.4) * 5 : 0
+    private func features(at t: Double, poke: CGFloat) -> some View {
+        let blinking = blink(at: t)
+        let widened = poke > 0.05 || isListening
 
         ZStack {
             // Blush
-            HStack(spacing: 96) {
-                cheek
-                cheek
+            HStack(spacing: 62) {
+                blush
+                blush
             }
-            .offset(y: 26)
+            .offset(y: 24)
+
+            // Brows — small, but they carry more expression than the eyes do.
+            HStack(spacing: 44) {
+                brow.rotationEffect(.degrees(browAngle), anchor: .center)
+                brow.rotationEffect(.degrees(-browAngle), anchor: .center)
+            }
+            .offset(y: -30 + browLift)
 
             // Eyes
-            HStack(spacing: 52) {
-                eye(blink: blink)
-                eye(blink: blink)
+            HStack(spacing: 30) {
+                eye(blink: blinking, widened: widened, at: t)
+                eye(blink: blinking, widened: widened, at: t)
             }
-            .offset(y: -14)
+            .offset(y: 2)
 
-            mouth(at: t)
-                .offset(y: 44)
+            mouth(at: t, poke: poke).offset(y: 42)
         }
-        .rotationEffect(.degrees(tilt), anchor: .center)
     }
 
-    private var cheek: some View {
+    private var blush: some View {
         Ellipse()
-            .fill(Palette.cheek.opacity(0.45))
-            .frame(width: 34, height: 20)
-            .blur(radius: 7)
+            .fill(Palette.cheek.opacity(0.40))
+            .frame(width: 26, height: 15)
+            .blur(radius: 4)
     }
 
-    private func eye(blink: CGFloat) -> some View {
-        ZStack {
+    private var brow: some View {
+        Capsule()
+            .fill(Palette.hair)
+            .frame(width: 22, height: 5)
+    }
+
+    private var browAngle: Double {
+        switch phase {
+        case .thinking: return 9
+        case .failed:   return -11
+        default:        return 0
+        }
+    }
+
+    private var browLift: CGFloat {
+        isListening ? -4 : (isSpeaking ? -2 : 0)
+    }
+
+    private func eye(blink: CGFloat, widened: Bool, at t: Double) -> some View {
+        // Eyes drift a little when idle, so she reads as looking around rather
+        // than staring through you.
+        let driftX = isThinking ? 3.0 : sin(t / 2.6) * 2.0
+        let driftY = isThinking ? -4.0 : cos(t / 3.7) * 1.2
+
+        return ZStack {
             Capsule()
                 .fill(Palette.eye)
-                .frame(width: 21, height: 27)
-            // Catch-light: the thing that makes it read as anime rather than a dot
-            Circle()
-                .fill(Color.white)
-                .frame(width: 7, height: 7)
-                .offset(x: -4.5, y: -7)
-            Circle()
-                .fill(Color.white.opacity(0.7))
-                .frame(width: 3.5, height: 3.5)
-                .offset(x: 4, y: 5)
+                .frame(width: widened ? 30 : 27, height: widened ? 38 : 34)
+            // Iris in the theme colour, so she matches the scheme
+            Capsule()
+                .fill(
+                    LinearGradient(colors: [Palette.sky, Palette.skyDeep],
+                                   startPoint: .top, endPoint: .bottom)
+                )
+                .frame(width: 17, height: 21)
+                .offset(x: driftX, y: 4 + driftY)
+            // Two catch-lights: the detail that reads as anime rather than
+            // as two dots.
+            Circle().fill(.white).frame(width: 9, height: 9)
+                .offset(x: -6 + driftX, y: -9 + driftY)
+            Circle().fill(.white.opacity(0.75)).frame(width: 4.5, height: 4.5)
+                .offset(x: 6 + driftX, y: 8 + driftY)
         }
         .scaleEffect(x: 1, y: blink, anchor: .center)
     }
 
-    /// Mouth shape carries the state more than anything else does.
-    private func mouth(at t: Double) -> some View {
+    private func mouth(at t: Double, poke: CGFloat) -> some View {
         let clamped = CGFloat(min(max(level, 0), 1))
         let (width, height): (CGFloat, CGFloat) = {
+            if poke > 0.05 { return (26, 18) }          // a happy open smile
             switch phase {
             case .listening:
-                // A small "o" that opens as you get louder
-                let d = 17 + clamped * 15
+                let d = 13 + clamped * 13
                 return (d, d)
             case .speaking:
                 let openness = (sin(t * 11) + 1) / 2
-                return (30, 7 + CGFloat(openness) * 19)
-            case .thinking:
-                return (20, 6)
-            case .failed:
-                return (22, 6)
-            default:
-                return (38, 11)
+                return (24, 6 + CGFloat(openness) * 15)
+            case .thinking: return (15, 5)
+            case .failed:   return (17, 5)
+            default:        return (26, 9)
             }
         }()
 
@@ -154,23 +261,48 @@ struct MiraFace: View {
             .animation(.easeOut(duration: 0.12), value: height)
     }
 
-    // MARK: - Motion
-
-    /// Slow when idle, quicker while thinking, in time with speech while
-    /// speaking, and following the microphone directly while listening.
-    private func breath(at t: Double) -> CGFloat {
-        if isListening {
-            return 0.97 + CGFloat(min(max(level, 0), 1)) * 0.16
+    private func sparkles(at t: Double) -> some View {
+        let spots: [(CGFloat, CGFloat, CGFloat, Double)] = [
+            (-112, -66, 19, 0.0),
+            (108, -44, 14, 1.1),
+            (96, 66, 16, 2.2),
+            (-98, 52, 11, 3.0)
+        ]
+        return ZStack {
+            ForEach(Array(spots.enumerated()), id: \.offset) { _, spot in
+                let twinkle = (sin(t * 1.7 + spot.3) + 1) / 2
+                Sparkle()
+                    .fill(Palette.amber.opacity(0.28 + twinkle * 0.42))
+                    .frame(width: spot.2, height: spot.2)
+                    .scaleEffect(0.75 + CGFloat(twinkle) * 0.35)
+                    .offset(x: spot.0, y: spot.1)
+            }
         }
-        let (period, amplitude): (Double, CGFloat) = {
-            if isSpeaking { return (1.3, 0.035) }
-            if isThinking { return (0.95, 0.022) }
-            return (4.4, 0.026)
-        }()
-        return 1 + amplitude * CGFloat(sin(t * 2 * .pi / period))
     }
 
-    /// A quick blink roughly every four seconds, plus a double-blink.
+    // MARK: - Motion
+
+    /// A slow float when idle, quicker while thinking, in time with speech
+    /// while speaking, and following the microphone while listening.
+    private func bob(at t: Double) -> CGFloat {
+        if isListening {
+            return 2 - CGFloat(min(max(level, 0), 1)) * 9
+        }
+        let (period, amplitude): (Double, CGFloat) = {
+            if isSpeaking { return (1.3, 5) }
+            if isThinking { return (2.0, 3) }
+            return (3.6, 6)
+        }()
+        return CGFloat(sin(t * 2 * .pi / period)) * amplitude
+    }
+
+    private func tilt(at t: Double) -> Double {
+        guard isThinking else { return isListening ? 2 : 0 }
+        return sin(t * 1.3) * 6
+    }
+
+    /// A quick blink roughly every four and a half seconds, with a
+    /// double-blink — a single even blink looks mechanical.
     private func blink(at t: Double) -> CGFloat {
         guard !reduceMotion else { return 1 }
         let cycle = t.truncatingRemainder(dividingBy: 4.6)
@@ -179,28 +311,32 @@ struct MiraFace: View {
         return 1
     }
 
-    private func sparkles(at t: Double) -> some View {
-        let spots: [(CGFloat, CGFloat, CGFloat, Double)] = [
-            (-104, -74, 20, 0.0),
-            (98, -52, 14, 1.1),
-            (86, 74, 17, 2.2),
-            (-92, 60, 11, 3.0)
-        ]
-        return ZStack {
-            ForEach(Array(spots.enumerated()), id: \.offset) { _, spot in
-                let twinkle = (sin(t * 1.7 + spot.3) + 1) / 2
-                Sparkle()
-                    .fill(Palette.sky.opacity(0.34 + twinkle * 0.46))
-                    .frame(width: spot.2, height: spot.2)
-                    .scaleEffect(0.75 + CGFloat(twinkle) * 0.35)
-                    .offset(x: spot.0, y: spot.1)
-            }
-        }
+    /// 1 immediately after a tap, falling to 0 over about a second.
+    private func pokeStrength(at now: Date) -> CGFloat {
+        guard let pokedAt, !reduceMotion else { return 0 }
+        let age = now.timeIntervalSince(pokedAt)
+        guard age >= 0, age < 0.9 else { return 0 }
+        return CGFloat(cos(age / 0.9 * .pi / 2))
     }
 }
 
-/// The equaliser under Mira's face. Reacts to your voice while listening and
-/// idles as a gentle ripple otherwise.
+/// The cowlick: up, over, and back down in a little hook.
+struct AhogeShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addCurve(to: CGPoint(x: rect.maxX * 0.86, y: rect.minY + rect.height * 0.16),
+                      control1: CGPoint(x: rect.minX + rect.width * 0.10, y: rect.midY),
+                      control2: CGPoint(x: rect.maxX * 0.55, y: rect.minY))
+        path.addCurve(to: CGPoint(x: rect.maxX * 0.52, y: rect.minY + rect.height * 0.40),
+                      control1: CGPoint(x: rect.maxX * 1.05, y: rect.minY + rect.height * 0.28),
+                      control2: CGPoint(x: rect.maxX * 0.80, y: rect.minY + rect.height * 0.46))
+        return path
+    }
+}
+
+/// The equaliser under Mira. Reacts to your voice while listening and idles as
+/// a gentle ripple otherwise.
 struct WaveBars: View {
     let level: Float
     let phase: CallViewModel.Phase
