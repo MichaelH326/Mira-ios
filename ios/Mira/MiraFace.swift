@@ -8,7 +8,7 @@ import SwiftUI
 /// carried by shape, eyes and colour, which is what makes her read as a
 /// creature rather than a face on a ball.
 ///
-/// Drawn in a `Canvas` rather than stacked shapes: the fur is ~170 tapered
+/// Drawn in a `Canvas` rather than stacked shapes: the fur is 160 tapered
 /// strands per frame, which is fine imperatively and would not be as views.
 struct MiraFace: View {
     let phase: CallViewModel.Phase
@@ -39,7 +39,8 @@ struct MiraFace: View {
             Canvas { context, size in
                 let centre = CGPoint(x: size.width / 2,
                                      y: size.height / 2 + bob(at: t))
-                let base = min(size.width, size.height) * 0.33 * (1 + poke * 0.06)
+                let span: CGFloat = min(size.width, size.height)
+                let base: CGFloat = span * 0.33 * (1 + poke * 0.06)
                 let outline = blob(centre: centre, radius: base, churn: churn, wobble: wobble)
 
                 // A wide soft halo, so she sits in light rather than on top of it.
@@ -100,9 +101,29 @@ struct MiraFace: View {
         return amount
     }
 
-    /// A closed organic outline: three harmonics summed around the circle,
+    /// How far the rim deviates from a circle at one angle: four harmonics,
     /// each drifting at its own rate so the shape never repeats visibly.
-    /// Smoothed through midpoints so there are no corners at the samples.
+    ///
+    /// Every term is its own annotated constant on purpose. Written as one
+    /// summed expression mixing CGFloat and Double, this defeated the type
+    /// checker — `cos` alone is ambiguous between two overloads.
+    private func deviation(angle: Double, churn: Double) -> Double {
+        let first: Double = 0.075 * sin(3 * angle + churn)
+        let second: Double = 0.048 * sin(5 * angle - churn * 1.35)
+        let third: Double = 0.030 * sin(7 * angle + churn * 0.7)
+        let fourth: Double = 0.020 * sin(11 * angle - churn * 0.5)
+        return first + second + third + fourth
+    }
+
+    /// The rim radius at one angle.
+    private func rim(angle: Double, radius: CGFloat,
+                     churn: Double, wobble: CGFloat) -> CGFloat {
+        let offset: CGFloat = CGFloat(deviation(angle: angle, churn: churn))
+        return radius * (1 + wobble * offset)
+    }
+
+    /// A closed organic outline, smoothed through midpoints so there are no
+    /// corners at the samples.
     private func blob(centre: CGPoint, radius: CGFloat,
                       churn: Double, wobble: CGFloat) -> Path {
         let samples = 72
@@ -110,15 +131,12 @@ struct MiraFace: View {
         points.reserveCapacity(samples)
 
         for index in 0..<samples {
-            let angle = Double(index) / Double(samples) * 2 * .pi
-            let deviation =
-                0.075 * sin(3 * angle + churn) +
-                0.048 * sin(5 * angle - churn * 1.35) +
-                0.030 * sin(7 * angle + churn * 0.7) +
-                0.020 * sin(11 * angle - churn * 0.5)
-            let r = radius * (1 + wobble * CGFloat(deviation))
-            points.append(CGPoint(x: centre.x + cos(angle) * r,
-                                  y: centre.y + sin(angle) * r))
+            let angle: Double = Double(index) / Double(samples) * 2 * .pi
+            let r: CGFloat = rim(angle: angle, radius: radius,
+                                 churn: churn, wobble: wobble)
+            let x: CGFloat = centre.x + CGFloat(cos(angle)) * r
+            let y: CGFloat = centre.y + CGFloat(sin(angle)) * r
+            points.append(CGPoint(x: x, y: y))
         }
 
         var path = Path()
@@ -143,42 +161,40 @@ struct MiraFace: View {
     /// frame to frame — random per frame would boil.
     private func fur(in context: inout GraphicsContext, centre: CGPoint,
                      radius: CGFloat, churn: Double, wobble: CGFloat) {
-        let strands = 170
+        let strands = 160
         context.drawLayer { layer in
             layer.addFilter(.blur(radius: 0.7))
             for index in 0..<strands {
-                let seed = Double(index)
-                let jitter = (noise(seed) - 0.5) * 0.055
-                let angle = seed / Double(strands) * 2 * .pi + jitter
+                let seed: Double = Double(index)
+                let jitter: Double = (noise(seed) - 0.5) * 0.055
+                let angle: Double = seed / Double(strands) * 2 * .pi + jitter
+                let edgeRadius: CGFloat = self.rim(angle: angle, radius: radius,
+                                                   churn: churn, wobble: wobble)
 
-                let deviation =
-                    0.075 * sin(3 * angle + churn) +
-                    0.048 * sin(5 * angle - churn * 1.35) +
-                    0.030 * sin(7 * angle + churn * 0.7) +
-                    0.020 * sin(11 * angle - churn * 0.5)
-                let rim = radius * (1 + wobble * CGFloat(deviation))
+                let lengthFactor: Double = 0.10 + noise(seed * 3.1) * 0.20
+                let length: CGFloat = radius * CGFloat(lengthFactor)
+                let innerFactor: Double = 0.86 + noise(seed * 7.7) * 0.08
+                let inner: CGFloat = edgeRadius * CGFloat(innerFactor)
+                let sway: Double = sin(churn * 1.6 + seed * 0.35) * 0.03
+                let outer: CGFloat = edgeRadius + length
 
-                let length = radius * CGFloat(0.10 + noise(seed * 3.1) * 0.20)
-                let inner = rim * CGFloat(0.86 + noise(seed * 7.7) * 0.08)
-                let sway = sin(churn * 1.6 + seed * 0.35) * 0.03
-
-                let start = CGPoint(x: centre.x + cos(angle) * inner,
-                                    y: centre.y + sin(angle) * inner)
-                let end = CGPoint(x: centre.x + cos(angle + sway) * (rim + length),
-                                  y: centre.y + sin(angle + sway) * (rim + length))
+                let startX: CGFloat = centre.x + CGFloat(cos(angle)) * inner
+                let startY: CGFloat = centre.y + CGFloat(sin(angle)) * inner
+                let endX: CGFloat = centre.x + CGFloat(cos(angle + sway)) * outer
+                let endY: CGFloat = centre.y + CGFloat(sin(angle + sway)) * outer
 
                 var strand = Path()
-                strand.move(to: start)
-                strand.addLine(to: end)
+                strand.move(to: CGPoint(x: startX, y: startY))
+                strand.addLine(to: CGPoint(x: endX, y: endY))
 
-                let pale = noise(seed * 2.3) > 0.45
-                layer.stroke(
-                    strand,
-                    with: .color((pale ? Self.core : Self.edge)
-                        .opacity(0.35 + noise(seed * 5.9) * 0.45)),
-                    style: StrokeStyle(lineWidth: 0.7 + CGFloat(noise(seed * 1.7)) * 1.1,
-                                       lineCap: .round)
-                )
+                let pale: Bool = noise(seed * 2.3) > 0.45
+                let tint: Color = pale ? Self.core : Self.edge
+                let alpha: Double = 0.35 + noise(seed * 5.9) * 0.45
+                let thickness: CGFloat = 0.7 + CGFloat(noise(seed * 1.7)) * 1.1
+
+                layer.stroke(strand,
+                             with: .color(tint.opacity(alpha)),
+                             style: StrokeStyle(lineWidth: thickness, lineCap: .round))
             }
         }
     }
@@ -194,10 +210,10 @@ struct MiraFace: View {
     private func blush(in context: inout GraphicsContext, centre: CGPoint, radius: CGFloat) {
         context.drawLayer { layer in
             layer.addFilter(.blur(radius: 9))
-            for side in [-1.0, 1.0] {
-                let rect = CGRect(x: centre.x + CGFloat(side) * radius * 0.46 - 17,
-                                  y: centre.y + radius * 0.20,
-                                  width: 34, height: 19)
+            for side in [-1.0, 1.0] as [CGFloat] {
+                let x: CGFloat = centre.x + side * radius * 0.46 - 17
+                let y: CGFloat = centre.y + radius * 0.20
+                let rect = CGRect(x: x, y: y, width: 34, height: 19)
                 layer.fill(Path(ellipseIn: rect), with: .color(Palette.cheek.opacity(0.34)))
             }
         }
@@ -208,16 +224,18 @@ struct MiraFace: View {
     /// catch-lights rather than being dots.
     private func eyes(in context: inout GraphicsContext, centre: CGPoint,
                       radius: CGFloat, t: Double, poke: CGFloat) {
-        let open = blink(at: t)
-        let wide = poke > 0.05 || isListening
-        let width = radius * (wide ? 0.24 : 0.21)
-        let height = radius * (wide ? 0.32 : 0.28) * open
-        let driftX = isThinking ? radius * 0.02 : CGFloat(sin(t / 2.6)) * radius * 0.012
-        let driftY = isThinking ? -radius * 0.03 : CGFloat(cos(t / 3.7)) * radius * 0.008
+        let open: CGFloat = blink(at: t)
+        let wide: Bool = poke > 0.05 || isListening
+        let width: CGFloat = radius * (wide ? 0.24 : 0.21)
+        let height: CGFloat = radius * (wide ? 0.32 : 0.28) * open
+        let idleX: CGFloat = CGFloat(sin(t / 2.6)) * radius * 0.012
+        let idleY: CGFloat = CGFloat(cos(t / 3.7)) * radius * 0.008
+        let driftX: CGFloat = isThinking ? radius * 0.02 : idleX
+        let driftY: CGFloat = isThinking ? -radius * 0.03 : idleY
 
-        for side in [-1.0, 1.0] {
-            let x = centre.x + CGFloat(side) * radius * 0.30
-            let y = centre.y - radius * 0.06
+        for side in [-1.0, 1.0] as [CGFloat] {
+            let x: CGFloat = centre.x + side * radius * 0.30
+            let y: CGFloat = centre.y - radius * 0.06
 
             let socket = CGRect(x: x - width / 2, y: y - height / 2,
                                 width: width, height: height)
