@@ -1,9 +1,12 @@
 import SwiftUI
+import UIKit
 
 /// Previous Sessions: search, date filters, a usage card, and every saved
 /// conversation newest first.
 struct SessionsView: View {
     @ObservedObject var store: SessionStore
+    /// Needed to pick a conversation back up, not just read it.
+    @ObservedObject var call: CallViewModel
     @Environment(\.dismiss) private var dismiss
 
     @State private var query = ""
@@ -166,12 +169,20 @@ struct SessionsView: View {
 
             ForEach(results) { session in
                 NavigationLink {
-                    SessionTranscript(session: session)
+                    SessionTranscript(session: session, call: call)
                 } label: {
                     SessionCard(session: session)
                 }
                 .buttonStyle(.plain)
                 .contextMenu {
+                    Button("Continue this chat", systemImage: "bubble.left.and.text.bubble.right") {
+                        call.resume(session)
+                        dismiss()
+                    }
+                    ShareLink(item: session.transcriptText) {
+                        Label("Share transcript", systemImage: "square.and.arrow.up")
+                    }
+                    Divider()
                     Button(role: .destructive) {
                         store.delete(session)
                     } label: {
@@ -282,6 +293,7 @@ private struct SessionCard: View {
 
 private struct SessionTranscript: View {
     let session: ChatSession
+    @ObservedObject var call: CallViewModel
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -301,7 +313,23 @@ private struct SessionTranscript: View {
                             .foregroundStyle(Palette.inkSoft)
                     }
                     Spacer()
-                    Color.clear.frame(width: 46, height: 46)
+                    Menu {
+                        Button("Continue this chat", systemImage: "bubble.left.and.text.bubble.right") {
+                            call.resume(session)
+                            dismiss()
+                        }
+                        ShareLink(item: session.transcriptText) {
+                            Label("Share transcript", systemImage: "square.and.arrow.up")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(Palette.skyInk)
+                            .frame(width: 46, height: 46)
+                            .background(Circle().fill(Palette.card)
+                                .shadow(color: Palette.shadowSoft, radius: 8, y: 3))
+                    }
+                    .accessibilityLabel("Chat actions")
                 }
                 .padding(.horizontal, 18).padding(.top, 8).padding(.bottom, 6)
 
@@ -331,8 +359,17 @@ struct ChatBubble: View {
             Text(text)
                 .font(.system(size: 15.5, design: .rounded))
                 .foregroundStyle(isMira ? Palette.ink : .white)
+                .textSelection(.enabled)
                 .padding(.horizontal, 15).padding(.vertical, 11)
                 .background(background)
+                .contextMenu {
+                    Button("Copy", systemImage: "doc.on.doc") {
+                        UIPasteboard.general.string = text
+                    }
+                    ShareLink(item: text) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                }
             if isMira { Spacer(minLength: 44) }
         }
     }

@@ -47,6 +47,12 @@ struct ChatSession: Identifiable, Codable, Equatable {
         return opener.count > 60 ? String(opener.prefix(60)) + "…" : opener
     }
 
+    /// The whole conversation as plain text, for sharing one chat.
+    var transcriptText: String {
+        messages.map { "\($0.isMira ? "Mira" : "You"): \($0.text)" }
+            .joined(separator: "\n\n")
+    }
+
     var preview: String {
         messages.last?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }

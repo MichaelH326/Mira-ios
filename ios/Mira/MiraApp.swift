@@ -66,21 +66,27 @@ private struct TalkView: View {
     @ObservedObject var listener: SpeechListener
     @Binding var permissionDenied: Bool
 
+    /// Collapsing Mira gives the transcript the whole screen. Remembered,
+    /// because whichever way you read is the way you keep reading.
+    @AppStorage(Prefs.expandedKey) private var expanded = false
+
     private var hasConversation: Bool {
         call.transcript.contains { $0.role != .system } || !call.liveMiraText.isEmpty
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            MiraHeader(call: call)
-            privacyBadge
-            greeting
+            MiraHeader(call: call, expanded: $expanded)
+            if !expanded {
+                privacyBadge
+                greeting
 
-            MiraFace(phase: call.phase, level: listener.audioLevel)
-                .padding(.top, 2)
+                MiraFace(phase: call.phase, level: listener.audioLevel)
+                    .padding(.top, 2)
 
-            WaveBars(level: listener.audioLevel, phase: call.phase)
-                .padding(.bottom, 8)
+                WaveBars(level: listener.audioLevel, phase: call.phase)
+                    .padding(.bottom, 8)
+            }
 
             StatusCard(call: call, listener: listener, permissionDenied: permissionDenied)
                 .padding(.horizontal, 20)
@@ -104,10 +110,51 @@ private struct TalkView: View {
                 Spacer(minLength: 8)
             }
 
-            sessionsLink
-            TalkButton(call: call, disabled: permissionDenied)
-                .padding(.bottom, 18)
+            controlRow
         }
+        .animation(.easeInOut(duration: 0.25), value: expanded)
+    }
+
+    /// Everything reachable without shifting your grip: the three things you
+    /// press during a call sit in the bottom third, mic in the middle.
+    private var controlRow: some View {
+        HStack(alignment: .center, spacing: 0) {
+            NavigationLink {
+                SessionsView(store: call.sessions, call: call)
+            } label: {
+                sideControl("clock.arrow.circlepath", label: "Previous sessions")
+            }
+            .frame(maxWidth: .infinity)
+
+            TalkButton(call: call, disabled: permissionDenied)
+
+            Menu {
+                Button("Replay Mira's last reply", systemImage: "gobackward") {
+                    call.replayLastReply()
+                }
+                .disabled(!call.canReplay)
+                Button("Ask that again", systemImage: "arrow.clockwise") {
+                    call.retryLastTurn()
+                }
+                .disabled(!call.canRetry)
+                Divider()
+                Button("New conversation", systemImage: "square.and.pencil") { call.reset() }
+            } label: {
+                sideControl("ellipsis", label: "More")
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, 22)
+        .padding(.bottom, 16)
+    }
+
+    private func sideControl(_ system: String, label: String) -> some View {
+        Image(systemName: system)
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(Palette.skyInk)
+            .frame(width: 48, height: 48)
+            .background(Circle().fill(Palette.card).shadow(color: Palette.shadowSoft, radius: 7, y: 3))
+            .accessibilityLabel(label)
     }
 
     /// Only claims privacy when it is true: with the Edge voice selected, the
@@ -143,30 +190,21 @@ private struct TalkView: View {
         }
     }
 
-    private var sessionsLink: some View {
-        NavigationLink {
-            SessionsView(store: call.sessions)
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "clock.arrow.circlepath").font(.system(size: 13, weight: .bold))
-                Text("PREVIOUS SESSIONS")
-                    .font(.system(size: 12, weight: .bold, design: .rounded)).kerning(0.9)
-                Image(systemName: "arrow.right").font(.system(size: 12, weight: .bold))
-            }
-            .foregroundStyle(Palette.skyInk)
-            .padding(.vertical, 12)
-        }
-    }
 }
 
 private struct MiraHeader: View {
     @ObservedObject var call: CallViewModel
+    @Binding var expanded: Bool
     @State private var showSettings = false
 
     var body: some View {
         HStack {
-            RoundedIconButton(system: "sparkles", tint: Palette.amber) {}
-                .allowsHitTesting(false)
+            RoundedIconButton(system: expanded ? "arrow.down.right.and.arrow.up.left"
+                                              : "arrow.up.left.and.arrow.down.right",
+                              tint: Palette.skyInk) {
+                expanded.toggle()
+            }
+            .accessibilityLabel(expanded ? "Show Mira" : "Expand transcript")
             Spacer()
             Text("Mira")
                 .font(.system(size: 27, weight: .heavy, design: .rounded))
@@ -343,6 +381,11 @@ private struct LiveTranscript: View {
     @ObservedObject var call: CallViewModel
     @ObservedObject var listener: SpeechListener
 
+    /// Whether the newest line is on screen. Auto-scrolling regardless is what
+    /// makes a transcript fight you: read back three turns and it yanks you
+    /// to the bottom the moment Mira says another word.
+    @State private var atBottom = true
+
     private var spoken: [ChatMessage] { call.transcript.filter { $0.role != .system } }
 
     var body: some View {
@@ -363,18 +406,53 @@ private struct LiveTranscript: View {
                         ChatBubble(text: listener.partialText, isMira: false)
                             .opacity(0.55).id("partial")
                     }
+                    // A tail marker rather than a scroll offset: whether this
+                    // is on screen is exactly the question being asked, and it
+                    // works back to iOS 17.
+                    Color.clear
+                        .frame(height: 1)
+                        .id("tail")
+                        .onAppear { atBottom = true }
+                        .onDisappear { atBottom = false }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
             }
+            .overlay(alignment: .bottom) {
+                if !atBottom {
+                    Button {
+                        withAnimation { proxy.scrollTo("tail", anchor: .bottom) }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.down")
+                                .font(.system(size: 11, weight: .bold))
+                            Text("Latest")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14).padding(.vertical, 9)
+                        .background(
+                            Capsule().fill(Palette.skyDeep)
+                                .shadow(color: Palette.shadow, radius: 8, y: 3)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.bottom, 8)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.18), value: atBottom)
             .onChange(of: call.transcript.count) { _, _ in
-                withAnimation { proxy.scrollTo(call.transcript.last?.id, anchor: .bottom) }
+                guard atBottom else { return }
+                withAnimation { proxy.scrollTo("tail", anchor: .bottom) }
             }
             .onChange(of: call.liveMiraText) { _, _ in
-                withAnimation { proxy.scrollTo("live", anchor: .bottom) }
+                guard atBottom else { return }
+                withAnimation { proxy.scrollTo("tail", anchor: .bottom) }
             }
             .onChange(of: listener.partialText) { _, _ in
-                withAnimation { proxy.scrollTo("partial", anchor: .bottom) }
+                guard atBottom else { return }
+                withAnimation { proxy.scrollTo("tail", anchor: .bottom) }
             }
         }
     }

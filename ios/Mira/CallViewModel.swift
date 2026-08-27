@@ -170,6 +170,57 @@ final class CallViewModel: ObservableObject {
         activeSession = nil
     }
 
+    /// Speaks Mira's last reply again, without asking the model for anything.
+    var canReplay: Bool {
+        transcript.last(where: { $0.role == .assistant }) != nil
+    }
+
+    func replayLastReply() {
+        guard let reply = transcript.last(where: { $0.role == .assistant }) else { return }
+        generation?.cancel()
+        generation = nil
+        listener.stop()
+        speaker.stop()
+        phase = .speaking
+        speaker.setExpectingMore(true)
+        for sentence in SpeechText.sentences(from: reply.text + " ").complete {
+            speaker.enqueue(sentence)
+        }
+        speaker.setExpectingMore(false)
+    }
+
+    /// Asks again with the same question — for when the reply was cut off or
+    /// the model wandered.
+    var canRetry: Bool {
+        transcript.last(where: { $0.role == .user }) != nil
+    }
+
+    func retryLastTurn() {
+        guard let question = transcript.last(where: { $0.role == .user })?.text else { return }
+        generation?.cancel()
+        generation = nil
+        speaker.stop()
+        // Drop the previous exchange so the model isn't answering itself.
+        if transcript.last?.role == .assistant { transcript.removeLast() }
+        if transcript.last?.role == .user { transcript.removeLast() }
+        send(question)
+    }
+
+    /// Picks a saved conversation back up: its turns become the live
+    /// transcript and the prompt, and new turns extend that same entry.
+    func resume(_ session: ChatSession) {
+        guard let chat else { return }
+        endCall()
+        transcript = [ChatMessage(role: .system, text: chat.systemPrompt)]
+            + session.messages.map {
+                ChatMessage(role: $0.isMira ? .assistant : .user, text: $0.text)
+            }
+        trimHistory()
+        activeSession = session
+        liveMiraText = ""
+        phase = .idle
+    }
+
     /// Appends to the saved conversation, creating one on the first turn.
     private func remember(_ text: String, isMira: Bool) {
         var session = activeSession

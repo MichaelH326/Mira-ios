@@ -10,6 +10,7 @@ enum Prefs {
     static let handsFreeKey = "mira.handsFree"
     static let engineKey = "mira.voice.engine"
     static let edgeVoiceKey = "mira.voice.edgeName"
+    static let expandedKey = "mira.transcript.expanded"
 }
 
 struct SettingsView: View {
