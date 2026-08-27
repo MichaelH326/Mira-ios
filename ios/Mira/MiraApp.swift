@@ -87,35 +87,15 @@ private struct TalkView: View {
         VStack(spacing: 0) {
             MiraHeader(call: call, expanded: $expanded)
             if !expanded {
-                privacyBadge
                 greeting
-
                 MiraFace(phase: call.phase, level: listener.audioLevel)
-                    .padding(.top, 2)
-
-                WaveBars(level: listener.audioLevel, phase: call.phase)
-                    .padding(.bottom, 8)
             }
 
-            StatusCard(call: call, listener: listener, permissionDenied: permissionDenied)
-                .padding(.horizontal, 20)
-
-            if let notice = call.voiceNotice {
-                HStack(spacing: 6) {
-                    Image(systemName: "wifi.slash").font(.system(size: 10, weight: .bold))
-                    Text(notice)
-                        .font(.system(size: 11.5, weight: .medium, design: .rounded))
-                        .lineLimit(2)
-                }
-                .foregroundStyle(Palette.inkSoft)
-                .padding(.horizontal, 24)
-                .padding(.top, 7)
-            }
+            statusLine
 
             if hasConversation {
-                LiveTranscript(call: call, listener: listener).padding(.top, 10)
+                LiveTranscript(call: call, listener: listener).padding(.top, 6)
             } else {
-                Starters(call: call).padding(.top, 14)
                 Spacer(minLength: 8)
             }
 
@@ -166,21 +146,41 @@ private struct TalkView: View {
             .accessibilityLabel(label)
     }
 
-    /// Only claims privacy when it is true: with the Edge voice selected, the
-    /// text of Mira's replies is sent to Microsoft to be spoken.
-    private var privacyBadge: some View {
-        HStack(spacing: 7) {
-            Circle()
-                .fill(call.isFullyLocal ? Palette.skyDeep : Palette.amber)
-                .frame(width: 6, height: 6)
-            Text(call.isFullyLocal ? "ON-DEVICE & PRIVATE" : "VOICE VIA MICROSOFT")
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .kerning(0.8)
-                .foregroundStyle(call.isFullyLocal ? Palette.skyInk : Palette.ink)
+    /// One line, or nothing. What she is doing is already visible in how she
+    /// moves, so this only carries what the shape cannot: what you said, and
+    /// anything that went wrong.
+    @ViewBuilder
+    private var statusLine: some View {
+        if let text = status {
+            Text(text)
+                .font(.system(size: 14.5, weight: .medium, design: .rounded))
+                .foregroundStyle(isFailure ? Palette.alert : Palette.inkSoft)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 32)
+                .padding(.top, 10)
+                .transition(.opacity)
+                .animation(.easeInOut(duration: 0.2), value: text)
         }
-        .padding(.horizontal, 15).padding(.vertical, 8)
-        .background(Capsule().fill(Palette.powder.opacity(0.75)))
-        .padding(.top, 4)
+    }
+
+    private var isFailure: Bool {
+        if case .failed = call.phase { return true }
+        return permissionDenied
+    }
+
+    private var status: String? {
+        if permissionDenied { return "Microphone is off — turn it on in Settings" }
+        switch call.phase {
+        case .loading(let message):   return message
+        case .listening:              return listener.partialText.isEmpty ? nil : listener.partialText
+        case .failed(let message):    return message
+        case .thinking, .speaking:    return nil
+        case .idle:
+            if let notice = call.voiceNotice { return notice }
+            return hasConversation ? nil : "Tap to talk"
+        }
     }
 
     private var greeting: some View {
@@ -246,94 +246,6 @@ struct RoundedIconButton: View {
                         .shadow(color: Palette.shadowSoft, radius: 8, y: 3)
                 )
         }
-    }
-}
-
-/// The white card under the face: what Mira is doing, and the last thing said.
-private struct StatusCard: View {
-    @ObservedObject var call: CallViewModel
-    @ObservedObject var listener: SpeechListener
-    let permissionDenied: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 7) {
-                Image(systemName: label.1).font(.system(size: 11, weight: .bold))
-                Text(label.0)
-                    .font(.system(size: 11.5, weight: .bold, design: .rounded)).kerning(0.9)
-            }
-            .foregroundStyle(label.2)
-
-            Text(message)
-                .font(.system(size: 19, weight: .bold, design: .rounded))
-                .foregroundStyle(Palette.ink)
-                .lineLimit(3)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Palette.card)
-                .shadow(color: Palette.shadow, radius: 14, y: 6)
-        )
-        .animation(.easeInOut(duration: 0.22), value: call.phase)
-    }
-
-    private var label: (String, String, Color) {
-        switch call.phase {
-        case .loading:   return ("WAKING UP", "hourglass", Palette.amber)
-        case .listening: return ("LISTENING", "waveform", Palette.skyDeep)
-        case .thinking:  return ("THINKING", "sparkles", Palette.amber)
-        case .speaking:  return ("MIRA IS TALKING", "speaker.wave.2.fill", Palette.skyDeep)
-        case .failed:    return ("SOMETHING WENT WRONG", "exclamationmark.triangle.fill", Palette.alert)
-        case .idle:      return (permissionDenied ? "MICROPHONE IS OFF" : "MIRA IS READY",
-                                 permissionDenied ? "mic.slash.fill" : "waveform",
-                                 permissionDenied ? Palette.alert : Palette.skyDeep)
-        }
-    }
-
-    private var message: String {
-        switch call.phase {
-        case .loading(let message): return message
-        case .listening:
-            return listener.partialText.isEmpty ? "I'm listening…" : listener.partialText
-        case .thinking:  return "Give me a second."
-        case .speaking:  return call.liveMiraText.isEmpty ? "…" : call.liveMiraText
-        case .failed(let message): return message
-        case .idle:
-            return permissionDenied
-                ? "Turn the microphone on in Settings so we can talk."
-                : "“What would you like to focus on today?”"
-        }
-    }
-}
-
-/// Opening prompts. Tapping one sends it as if it had been spoken.
-private struct Starters: View {
-    @ObservedObject var call: CallViewModel
-
-    private let options: [(String, String, Color)] = [
-        ("Plan my day", "Help me plan my day.", Palette.powder),
-        ("Help me think", "Help me think something through.", Palette.peach),
-        ("Quick question", "I have a quick question.", Palette.butterDeep)
-    ]
-
-    var body: some View {
-        HStack(spacing: 9) {
-            ForEach(options, id: \.0) { option in
-                Button { call.send(option.1) } label: {
-                    Text(option.0)
-                        .font(.system(size: 13.5, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Palette.ink)
-                        .padding(.horizontal, 14).padding(.vertical, 11)
-                        .background(Capsule().fill(option.2))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 16)
     }
 }
 
