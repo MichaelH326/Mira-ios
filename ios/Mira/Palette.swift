@@ -36,11 +36,15 @@ enum Palette {
     static let card = Color.white
     static let alert = Color(red: 0.804, green: 0.404, blue: 0.239)
 
-    // Mira's face
+    // Mira
     static let eye = Color(red: 0.145, green: 0.184, blue: 0.243)
     static let cheek = Color(red: 1.00, green: 0.612, blue: 0.616)
-    static var hair: Color { theme.accentDeep }
-    static var hairLight: Color { theme.accent }
+    /// One pastel hue in three steps — see `Theme.furLight`.
+    static var furLight: Color { theme.furLight }
+    static var furMid: Color { theme.furMid }
+    static var furDeep: Color { theme.furDeep }
+    static var hair: Color { theme.furDeep }
+    static var hairLight: Color { theme.furMid }
 
     /// A shadow tinted toward the accent. A neutral one greys the pastels out.
     static var shadow: Color { theme.accentDeep.opacity(0.20) }

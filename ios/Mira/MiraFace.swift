@@ -1,19 +1,22 @@
 import SwiftUI
 
-/// Mira: a soft, fluffy, free-form shape.
+/// Mira: a soft, free-form creature in one pastel colour, with hair.
 ///
-/// No mouth. The silhouette itself is the expression — it breathes when idle,
-/// swells toward you while listening, and deforms in speech rhythm when she
-/// talks. A drawn mouth would fight that; without one, every state has to be
-/// carried by shape, eyes and colour, which is what makes her read as a
-/// creature rather than a face on a ball.
+/// No mouth. The silhouette is the expression — it breathes when idle, swells
+/// toward you while listening, and deforms in speech rhythm when she talks.
+/// Without a mouth, shape and eyes and hair carry every state, which is what
+/// makes her read as a creature rather than a face on a ball.
 ///
-/// Two things decide whether she reads as fluffy or spiky, and both are about
-/// the strands rather than the outline: their proportions, and whether they
-/// curl. Long, thin, straight ones are spines however many you draw. Short,
-/// wide, blurred ones that bend sideways are fluff. So they are drawn in
-/// layers — a soft haze furthest out, denser texture close in — each strand a
-/// curve rather than a line.
+/// She is one hue in three steps rather than a blend of colours: a near-white
+/// lit side, the pastel itself, and a deeper shade for the hair and the shadow
+/// it casts. That restraint is most of what makes her look designed. The hue
+/// comes from the theme, so picking a scheme recolours her.
+///
+/// The hair is drawn as soft spikes: tufts with curved sides and a blunted
+/// tip, a few behind the body and more in front, swaying on their own clock.
+/// Sharp spikes would read as spiny — the blunting is the whole trick — and
+/// the body's fluff is deliberately quieter than it was, because the hair now
+/// carries the character and two competing textures read as noise.
 ///
 /// Drawn in a `Canvas` rather than stacked shapes: this is several hundred
 /// strokes per frame, which is fine imperatively and would not be as views.
@@ -34,22 +37,21 @@ struct MiraFace: View {
     private var isListening: Bool { phase == .listening }
     private var isSpeaking: Bool { phase == .speaking }
     private var isThinking: Bool { phase == .thinking }
-
-    private static let core = Color(red: 1.00, green: 0.988, blue: 0.973)
-    private static let mid = Color(red: 1.00, green: 0.937, blue: 0.878)
-    private static let edge = Color(red: 0.996, green: 0.855, blue: 0.769)
+    private var isLoading: Bool {
+        if case .loading = phase { return true }
+        return false
+    }
 
     /// The most drawing area she will take. A cap rather than a fixed height:
     /// the frame is flexible below it, so on a small phone she gives room
     /// back to the caption and the controls instead of pushing them off.
-    static let canvasHeight: CGFloat = 380
+    static let canvasHeight: CGFloat = 400
 
     /// The body as a fraction of the space available, chosen so that the body
-    /// plus the longest strand plus the float still fits. The outer fur band
-    /// reaches 24% past the rim, so 0.5 / 1.24 is the largest body that never
-    /// clips; this backs off from that to leave room for stroke width and the
-    /// bob.
-    private static let bodyFraction: CGFloat = 0.375
+    /// plus the tallest hair tuft plus the float still fits. Hair reaches 34%
+    /// past the rim, so 0.5 / 1.34 is the largest body that never clips; this
+    /// backs off from that for stroke width and the bob.
+    private static let bodyFraction: CGFloat = 0.355
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
@@ -68,9 +70,14 @@ struct MiraFace: View {
 
                 // A wide soft halo, so she sits in light rather than on top of it.
                 context.drawLayer { layer in
-                    layer.addFilter(.blur(radius: 30))
-                    layer.fill(outline, with: .color(Palette.sky.opacity(0.26)))
+                    layer.addFilter(.blur(radius: 32))
+                    layer.fill(outline, with: .color(Palette.furDeep.opacity(0.30)))
                 }
+
+                // Hair behind the body reads as depth: you see the far side of
+                // her head past the near side.
+                hair(Self.backTufts, in: &context, centre: centre, radius: base,
+                     churn: churn, wobble: wobble, t: t, tint: Palette.furDeep.opacity(0.75))
 
                 for band in Self.furLayers {
                     fur(band, in: &context, centre: centre,
@@ -80,23 +87,31 @@ struct MiraFace: View {
                 context.fill(
                     outline,
                     with: .radialGradient(
-                        Gradient(colors: [Self.core, Self.mid, Self.edge]),
-                        center: CGPoint(x: centre.x - base * 0.22, y: centre.y - base * 0.30),
-                        startRadius: 2, endRadius: base * 1.5)
+                        Gradient(colors: [Palette.furLight, Palette.furMid]),
+                        center: CGPoint(x: centre.x - base * 0.26, y: centre.y - base * 0.34),
+                        startRadius: base * 0.05, endRadius: base * 1.25)
                 )
 
                 // The softest edge: a blurred rim inside the silhouette, which
                 // is what stops it reading as a hard vector shape.
                 context.drawLayer { layer in
-                    layer.addFilter(.blur(radius: 9))
-                    layer.stroke(outline, with: .color(Self.edge.opacity(0.85)), lineWidth: 16)
+                    layer.addFilter(.blur(radius: 10))
+                    layer.stroke(outline, with: .color(Palette.furMid.opacity(0.9)), lineWidth: 16)
                 }
 
                 // A last pass over the rim. Fur behind the body alone leaves a
-                // clean arc where the fill ends; these break it, so the edge
-                // never resolves into a line.
+                // clean arc where the fill ends; these break it.
                 fur(Self.topFuzz, in: &context, centre: centre,
                     radius: base, churn: churn, wobble: wobble)
+
+                context.fill(hairline(centre: centre, radius: base, churn: churn,
+                                      wobble: wobble, t: t),
+                             with: .color(Palette.furDeep))
+                hair(Self.frontTufts, in: &context, centre: centre, radius: base,
+                     churn: churn, wobble: wobble, t: t, tint: Palette.furDeep)
+                // The shadow the hair casts on her forehead. Without it the
+                // hair looks stuck on rather than growing out.
+                hairShadow(in: &context, centre: centre, radius: base)
 
                 blush(in: &context, centre: centre, radius: base)
                 eyes(in: &context, centre: centre, radius: base, t: t, poke: poke)
@@ -116,6 +131,7 @@ struct MiraFace: View {
     private var churnRate: Double {
         if isSpeaking { return 2.6 }
         if isThinking { return 1.5 }
+        if isLoading { return 1.1 }
         if isListening { return 1.0 }
         return 0.45
     }
@@ -126,6 +142,7 @@ struct MiraFace: View {
             if isListening { return 0.40 + CGFloat(min(max(level, 0), 1)) * 0.80 }
             if isSpeaking { return 0.85 }
             if isThinking { return 0.62 }
+            if isLoading { return 0.50 }
             if case .failed = phase { return 0.22 }
             return 0.38
         }()
@@ -191,14 +208,168 @@ struct MiraFace: View {
         CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
     }
 
+    // MARK: - Hair
+
+    /// One tuft of hair: where it sits, how long, how wide at the base, and
+    /// how far it leans. Angles are in turns clockwise from straight up, so
+    /// they read as clock positions rather than radians.
+    private struct Tuft {
+        let turn: Double        // 0 = straight up, ±0.25 = the sides
+        let length: Double      // as a fraction of the body radius
+        let width: Double       // half-width at the base, in turns
+        let lean: Double        // tip offset, in turns
+        let sway: Double        // how much it moves on its own
+    }
+
+    /// Behind the body: a few long ones showing past her sides, which is what
+    /// gives the head depth instead of a flat disc.
+    private static let backTufts: [Tuft] = [
+        Tuft(turn: -0.315, length: 0.26, width: 0.030, lean: -0.070, sway: 0.9),
+        Tuft(turn: -0.250, length: 0.22, width: 0.028, lean: -0.055, sway: 1.2),
+        Tuft(turn: -0.075, length: 0.20, width: 0.026, lean: -0.020, sway: 1.0),
+        Tuft(turn:  0.075, length: 0.20, width: 0.026, lean:  0.020, sway: 1.1),
+        Tuft(turn:  0.250, length: 0.22, width: 0.028, lean:  0.055, sway: 1.2),
+        Tuft(turn:  0.315, length: 0.26, width: 0.030, lean:  0.070, sway: 0.8)
+    ]
+
+    /// In front. Narrow relative to their spacing, so the tips stay separate —
+    /// wide ones merge into a single lump and the whole head reads as wearing
+    /// a cap. The lengths are deliberately uneven, and the long off-centre one
+    /// is the cowlick: it does most of the work of making her look like a
+    /// character rather than a shape.
+    private static let frontTufts: [Tuft] = [
+        Tuft(turn: -0.290, length: 0.16, width: 0.026, lean: -0.070, sway: 1.4),
+        Tuft(turn: -0.232, length: 0.27, width: 0.025, lean: -0.052, sway: 1.1),
+        Tuft(turn: -0.174, length: 0.19, width: 0.024, lean: -0.038, sway: 1.3),
+        Tuft(turn: -0.116, length: 0.34, width: 0.026, lean: -0.030, sway: 0.9),
+        Tuft(turn: -0.058, length: 0.22, width: 0.024, lean: -0.012, sway: 1.2),
+        Tuft(turn:  0.000, length: 0.29, width: 0.025, lean:  0.006, sway: 1.0),
+        Tuft(turn:  0.058, length: 0.18, width: 0.024, lean:  0.020, sway: 1.3),
+        Tuft(turn:  0.116, length: 0.31, width: 0.026, lean:  0.034, sway: 0.9),
+        Tuft(turn:  0.174, length: 0.20, width: 0.024, lean:  0.048, sway: 1.2),
+        Tuft(turn:  0.232, length: 0.25, width: 0.025, lean:  0.062, sway: 1.1),
+        Tuft(turn:  0.290, length: 0.15, width: 0.026, lean:  0.078, sway: 1.4)
+    ]
+
+    /// How far around the top the solid hairline reaches, in turns.
+    private static let hairlineReach: Double = 0.30
+
+    /// The solid band of hair across the top of her head.
+    ///
+    /// Spikes alone don't read as hair — they read as spikes. What makes it
+    /// hair is a continuous mass at the roots with the spikes rising out of
+    /// it, so this is drawn first and the tufts sit on top: outer edge just
+    /// past the rim, inner edge cutting across her forehead.
+    private func hairline(centre: CGPoint, radius: CGFloat,
+                          churn: Double, wobble: CGFloat, t: Double) -> Path {
+        let samples = 40
+        let reach = Self.hairlineReach
+        let dip: Double = sin(t * 0.7) * 0.008        // the fringe breathes
+
+        var path = Path()
+        // Out along the top edge.
+        for index in 0...samples {
+            let turn: Double = -reach + Double(index) / Double(samples) * reach * 2
+            let angle: Double = turn * 2 * .pi - .pi / 2
+            let r: CGFloat = rim(angle: angle, radius: radius,
+                                 churn: churn, wobble: wobble) * 1.035
+            let p = point(centre, angle, r)
+            if index == 0 { path.move(to: p) } else { path.addLine(to: p) }
+        }
+        // And back along the inner edge, dipping lowest at the middle so the
+        // fringe comes to a soft point over her face.
+        for index in stride(from: samples, through: 0, by: -1) {
+            let turn: Double = -reach + Double(index) / Double(samples) * reach * 2
+            let angle: Double = turn * 2 * .pi - .pi / 2
+            // 1 in the middle, 0 at the ends.
+            let centreness: Double = cos(turn / reach * .pi / 2)
+            let depth: Double = 0.90 - centreness * (0.20 + dip)
+            let r: CGFloat = rim(angle: angle, radius: radius,
+                                 churn: churn, wobble: wobble) * CGFloat(depth)
+            path.addLine(to: point(centre, angle, r))
+        }
+        path.closeSubpath()
+        return path
+    }
+
+    /// A soft spike: two curves from the base out to a blunted tip.
+    ///
+    /// The blunting is the whole trick. Two curves meeting at a point give a
+    /// thorn; carrying the tip across a short flat between them gives hair.
+    private func hair(_ tufts: [Tuft], in context: inout GraphicsContext,
+                      centre: CGPoint, radius: CGFloat, churn: Double,
+                      wobble: CGFloat, t: Double, tint: Color) {
+        for (index, tuft) in tufts.enumerated() {
+            let drift: Double = sin(t * 0.9 + Double(index) * 1.7) * 0.012 * tuft.sway
+            let flick: Double = isThinking ? sin(t * 3.2 + Double(index)) * 0.010 : 0
+            let lean: Double = tuft.lean + drift + flick
+
+            // Straight up is -pi/2 in screen space, and turns go clockwise.
+            let axis: Double = tuft.turn * 2 * .pi - .pi / 2
+            let leftBase: Double = axis - tuft.width * 2 * .pi
+            let rightBase: Double = axis + tuft.width * 2 * .pi
+            let tipAxis: Double = axis + lean * 2 * .pi
+
+            // Rooted inside the hairline so each tuft grows out of the mass
+            // rather than balancing on the rim.
+            let root: CGFloat = 0.86
+            let leftR: CGFloat = rim(angle: leftBase, radius: radius,
+                                     churn: churn, wobble: wobble) * root
+            let rightR: CGFloat = rim(angle: rightBase, radius: radius,
+                                      churn: churn, wobble: wobble) * root
+            let tipR: CGFloat = rim(angle: tipAxis, radius: radius,
+                                    churn: churn, wobble: wobble)
+                * (1 + CGFloat(tuft.length))
+
+            let left = point(centre, leftBase, leftR)
+            let right = point(centre, rightBase, rightR)
+            // The blunt tip: two points a little either side of the axis.
+            let tipSpread: Double = tuft.width * 0.30 * 2 * .pi
+            let tipA = point(centre, tipAxis - tipSpread, tipR)
+            let tipB = point(centre, tipAxis + tipSpread, tipR)
+            // Control points bow the sides outward, which is what stops it
+            // reading as a triangle.
+            let bow: CGFloat = 0.55
+            let ctrlA = point(centre, leftBase - tuft.width * 0.6 * 2 * .pi,
+                              leftR + (tipR - leftR) * bow)
+            let ctrlB = point(centre, rightBase + tuft.width * 0.6 * 2 * .pi,
+                              rightR + (tipR - rightR) * bow)
+
+            var strand = Path()
+            strand.move(to: left)
+            strand.addQuadCurve(to: tipA, control: ctrlA)
+            strand.addQuadCurve(to: tipB, control: point(centre, tipAxis, tipR * 1.03))
+            strand.addQuadCurve(to: right, control: ctrlB)
+            strand.closeSubpath()
+
+            context.fill(strand, with: .color(tint))
+        }
+    }
+
+    /// Where the hair meets the head, darkened. Blurred hard so it is a
+    /// gradation and not an edge.
+    private func hairShadow(in context: inout GraphicsContext,
+                            centre: CGPoint, radius: CGFloat) {
+        context.drawLayer { layer in
+            layer.addFilter(.blur(radius: 14))
+            let rect = CGRect(x: centre.x - radius * 0.80,
+                              y: centre.y - radius * 0.96,
+                              width: radius * 1.60, height: radius * 0.44)
+            layer.fill(Path(ellipseIn: rect), with: .color(Palette.furDeep.opacity(0.28)))
+        }
+    }
+
+    private func point(_ centre: CGPoint, _ angle: Double, _ r: CGFloat) -> CGPoint {
+        CGPoint(x: centre.x + CGFloat(cos(angle)) * r,
+                y: centre.y + CGFloat(sin(angle)) * r)
+    }
+
     // MARK: - Fur
 
-    /// One band of strands. Furthest out is longest, widest, faintest and most
-    /// blurred; closest in is short, dense and nearly sharp. Reading the three
-    /// bands top to bottom is reading the profile of the fluff.
+    /// One band of strands around the rim. Quieter than it was: the hair now
+    /// carries the character, and two loud textures read as noise.
     private struct FurLayer {
         let count: Int
-        /// Strand length as a fraction of the radius.
         let minLength: Double
         let maxLength: Double
         let minWidth: CGFloat
@@ -206,35 +377,28 @@ struct MiraFace: View {
         let minAlpha: Double
         let maxAlpha: Double
         let blur: CGFloat
-        /// How far a strand bends, in radians. The outer ones bend most.
         let curl: Double
-        /// Offsets the hash, so the bands don't sit on each other's strands.
         let seedOffset: Double
     }
 
     private static let furLayers: [FurLayer] = [
-        FurLayer(count: 90, minLength: 0.13, maxLength: 0.24,
-                 minWidth: 3.0, maxWidth: 6.0, minAlpha: 0.10, maxAlpha: 0.24,
+        FurLayer(count: 80, minLength: 0.08, maxLength: 0.15,
+                 minWidth: 3.0, maxWidth: 6.0, minAlpha: 0.10, maxAlpha: 0.22,
                  blur: 6.0, curl: 0.34, seedOffset: 0),
-        FurLayer(count: 130, minLength: 0.07, maxLength: 0.15,
-                 minWidth: 2.2, maxWidth: 4.2, minAlpha: 0.20, maxAlpha: 0.40,
-                 blur: 2.6, curl: 0.24, seedOffset: 500),
-        FurLayer(count: 150, minLength: 0.035, maxLength: 0.085,
-                 minWidth: 1.6, maxWidth: 3.0, minAlpha: 0.28, maxAlpha: 0.52,
-                 blur: 1.0, curl: 0.16, seedOffset: 1000)
+        FurLayer(count: 120, minLength: 0.05, maxLength: 0.10,
+                 minWidth: 2.2, maxWidth: 4.2, minAlpha: 0.18, maxAlpha: 0.34,
+                 blur: 2.6, curl: 0.24, seedOffset: 500)
     ]
 
     /// Drawn over the body rather than behind it, to break the rim.
-    private static let topFuzz = FurLayer(count: 110, minLength: 0.03, maxLength: 0.075,
+    private static let topFuzz = FurLayer(count: 100, minLength: 0.025, maxLength: 0.06,
                                           minWidth: 1.8, maxWidth: 3.4,
-                                          minAlpha: 0.30, maxAlpha: 0.55,
+                                          minAlpha: 0.22, maxAlpha: 0.42,
                                           blur: 1.6, curl: 0.20, seedOffset: 2000)
 
-    /// Strands rooted just inside the rim, curving outward.
-    ///
-    /// Lengths, widths and angles all come from a hash of the index, so the
-    /// fluff is irregular but identical frame to frame — re-randomising each
-    /// frame makes it boil.
+    /// Strands rooted just inside the rim, curving outward. Lengths, widths
+    /// and angles come from a hash of the index, so the fluff is irregular but
+    /// identical frame to frame — re-randomising each frame makes it boil.
     private func fur(_ band: FurLayer, in context: inout GraphicsContext,
                      centre: CGPoint, radius: CGFloat,
                      churn: Double, wobble: CGFloat) {
@@ -254,9 +418,6 @@ struct MiraFace: View {
                 let inner: CGFloat = edgeRadius * CGFloat(innerFactor)
                 let outer: CGFloat = edgeRadius + length
 
-                // The strand bends: its tip sits at a different angle from its
-                // root, and the control point between them is offset part of
-                // the way. That curve is what separates fluff from a spine.
                 let sway: Double = sin(churn * 1.4 + seed * 0.35) * 0.035
                 let bend: Double = (noise(seed * 4.3) - 0.5) * band.curl
                 let tipAngle: Double = angle + sway + bend
@@ -276,7 +437,7 @@ struct MiraFace: View {
                                     control: CGPoint(x: midX, y: midY))
 
                 let pale: Bool = noise(seed * 2.3) > 0.42
-                let tint: Color = pale ? Self.core : Self.edge
+                let tint: Color = pale ? Palette.furLight : Palette.furMid
                 let alphaSpan: Double = band.maxAlpha - band.minAlpha
                 let alpha: Double = band.minAlpha + noise(seed * 5.9) * alphaSpan
                 let widthSpan: CGFloat = band.maxWidth - band.minWidth
@@ -327,7 +488,7 @@ struct MiraFace: View {
 
         for side in [-1.0, 1.0] as [CGFloat] {
             let x: CGFloat = centre.x + side * radius * 0.32
-            let y: CGFloat = centre.y - radius * 0.05
+            let y: CGFloat = centre.y + radius * 0.02
 
             let socket = CGRect(x: x - width / 2, y: y - height / 2,
                                 width: width, height: height)
@@ -369,6 +530,7 @@ struct MiraFace: View {
         let (period, amplitude): (Double, CGFloat) = {
             if isSpeaking { return (1.3, 4) }
             if isThinking { return (2.0, 3) }
+            if isLoading { return (1.6, 5) }
             return (3.8, 6)
         }()
         return CGFloat(sin(t * 2 * .pi / period)) * amplitude

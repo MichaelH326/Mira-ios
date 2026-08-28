@@ -113,6 +113,47 @@ enum Theme: String, CaseIterable, Identifiable {
     var inkSoft: Color { ink.opacity(0.66) }
     var inkFaint: Color { ink.opacity(0.40) }
 
+    // MARK: - Mira
+
+    /// Mira is one pastel hue in three steps rather than a blend of several:
+    /// a near-white lit side, the pastel itself, and a deeper shade that does
+    /// her hair and the shadow under it. Keeping her to a single hue is most
+    /// of what makes her read as a designed character instead of a drawing —
+    /// and it means she recolours with the scheme rather than sitting on it.
+
+    /// The lit side of her body, and the pale strands in her fluff.
+    var furLight: Color {
+        switch self {
+        case .butter:  return Color(red: 0.949, green: 0.980, blue: 1.00)
+        case .blossom: return Color(red: 1.00, green: 0.961, blue: 0.976)
+        case .matcha:  return Color(red: 0.961, green: 0.992, blue: 0.957)
+        case .lilac:   return Color(red: 0.980, green: 0.973, blue: 1.00)
+        case .dusk:    return Color(red: 0.961, green: 0.973, blue: 1.00)
+        }
+    }
+
+    /// The body proper. This is the colour she reads as.
+    var furMid: Color {
+        switch self {
+        case .butter:  return Color(red: 0.796, green: 0.898, blue: 0.973)
+        case .blossom: return Color(red: 1.00, green: 0.812, blue: 0.882)
+        case .matcha:  return Color(red: 0.816, green: 0.929, blue: 0.812)
+        case .lilac:   return Color(red: 0.878, green: 0.851, blue: 0.980)
+        case .dusk:    return Color(red: 0.800, green: 0.843, blue: 0.949)
+        }
+    }
+
+    /// Hair, and the shading where it falls across her.
+    var furDeep: Color {
+        switch self {
+        case .butter:  return Color(red: 0.522, green: 0.714, blue: 0.898)
+        case .blossom: return Color(red: 0.976, green: 0.545, blue: 0.702)
+        case .matcha:  return Color(red: 0.545, green: 0.780, blue: 0.545)
+        case .lilac:   return Color(red: 0.678, green: 0.612, blue: 0.929)
+        case .dusk:    return Color(red: 0.514, green: 0.596, blue: 0.847)
+        }
+    }
+
     /// The theme in use. Read at draw time so a change in Settings applies
     /// everywhere at once without every view holding a copy.
     static var current: Theme {

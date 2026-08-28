@@ -43,6 +43,8 @@ listed in `.gitignore`.
 | `Speech.swift` | speech-to-text, Apple text-to-speech, number spelling |
 | `VoiceOutput.swift` | the voice protocol and its queue bookkeeping |
 | `LocalVoice.swift` | on-device neural TTS through sherpa-onnx |
+| `MiraFace.swift` | the mascot, drawn in a `Canvas` |
+| `Motion.swift` | the shared animations |
 | `CallViewModel.swift` | call state machine |
 | `MiraApp.swift` | SwiftUI interface (`@main` lives here) |
 
@@ -82,7 +84,7 @@ Two workflow inputs:
 - **`publish_release`** — `true` (default) attaches the IPA to `ios-latest`;
   `false` builds the artifact only.
 - **`bundle_tts`** — `true` (default) bundles the on-device voice and speech
-  models, adding about 118 MB to the IPA. `false` builds without them and the
+  models, adding about 145 MB to the IPA. `false` builds without them and the
   app uses Apple's synthesizer and recognizer — much faster to iterate on.
 - **`llama_ref`** — which llama.cpp commit to build against. The default is
   `master`. The app uses the current llama.cpp C API (`llama_model_load_from_file`,
@@ -204,6 +206,37 @@ Both usage strings already live in `ios/Mira/Info.plist`:
 `UIBackgroundModes ▸ audio` is enabled so Mira keeps talking when the screen
 locks.
 
+## Mira, and the app icon
+
+She is one pastel hue in three steps — a near-white lit side, the pastel
+itself, and a deeper shade for hair and the shadow it casts — rather than a
+blend of colours. That restraint is most of what makes her look designed. The
+hue comes from `Theme`, so picking a scheme in onboarding recolours her.
+
+The silhouette is three low harmonics summed around a circle, each drifting at
+its own rate so it never visibly repeats. Low harmonics on purpose: a high one
+puts many small lobes around the rim, and small lobes read as points.
+
+Hair is a solid hairline across the top with soft spikes rising out of it.
+Both halves are needed. Spikes alone read as spikes; a band alone reads as a
+swim cap. The spikes are narrow relative to their spacing so their tips stay
+separate, and their tips are blunted — two curves meeting at a point give a
+thorn, carrying the tip across a short flat between them gives hair.
+
+The app icon is the same mascot, and `tools/make_icon.py` redraws it from the
+same constants rather than tracing a screenshot:
+
+    python3 tools/make_icon.py     # needs pillow
+
+It writes the single 1024x1024 image iOS 17 derives the rest from. Change
+`MiraFace.swift` and it is worth re-running; the two are meant to match.
+
+One thing to know if you edit it: everything soft in that script is a blurred
+`L` mask with a uniform colour poured through it, never a blurred RGBA layer.
+PIL blurs colour channels independently of alpha, so blurring a transparent
+layer drags RGB out of the transparent-black pixels around the shape — which
+showed up as grey scratches across her.
+
 ## The voice
 
 Apple's built-in voices are the compact ones unless you have downloaded better
@@ -260,19 +293,19 @@ speaking — replacing the hand-rolled silence timers that caused the early
 "the button switches on and straight back off" bug. The timers remain only as
 a backstop.
 
-The model is `sherpa-onnx-streaming-zipformer-en-20M-2023-02-17` — the 20 M
-parameter streaming recipe, in place of the 2023-06-26 model that came before
-it. Roughly a third of the encoder compute per chunk, so partials land sooner,
-and 42 MB against 68 MB.
+The model is `sherpa-onnx-streaming-zipformer-en-2023-06-26`. The 20 M
+parameter recipe was tried in its place — a third of the encoder compute and
+26 MB smaller — and its transcription was not good enough to keep.
 
-Only the int8 weights are bundled: the float encoder is 160 MB against 41 MB
-quantized. `SFSpeechRecognizer` stays as the fallback for builds made with
-`bundle_tts: false`.
+Only the int8 weights are bundled: the float encoder alone is 249 MB against
+67 MB quantized, for about 68 MB total. `SFSpeechRecognizer` stays as the
+fallback for builds made with `bundle_tts: false`.
 
 `StreamingRecognizer` leaves `model_type` empty so sherpa-onnx reads the
 architecture out of the encoder's own ONNX metadata. Hardcoding it means
 keeping the value in sync with whatever CI downloads, and getting it wrong
-fails at load — this model is a `zipformer`, the one before it a `zipformer2`.
+fails at load — the 20 M model is a `zipformer` and this one a `zipformer2`,
+so the value had to change with the download and now does not.
 
 ## Performance notes
 

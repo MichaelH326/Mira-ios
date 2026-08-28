@@ -24,6 +24,7 @@ struct RootView: View {
         NavigationStack {
             ZStack {
                 Palette.background.ignoresSafeArea()
+                DriftingBackdrop()
                 if model == nil {
                     ImportPrompt(showImporter: $showImporter)
                 } else if !onboarded {
@@ -134,6 +135,7 @@ private struct TalkView: View {
             } label: {
                 sideControl("clock.arrow.circlepath", label: "Previous sessions")
             }
+            .buttonStyle(PressableStyle())
             .frame(maxWidth: .infinity)
 
             TalkButton(call: call, disabled: permissionDenied)
@@ -156,6 +158,7 @@ private struct TalkView: View {
         }
         .padding(.horizontal, 22)
         .padding(.bottom, 16)
+        .riseIn(delay: 0.08)
     }
 
     private func sideControl(_ system: String, label: String) -> some View {
@@ -173,22 +176,30 @@ private struct TalkView: View {
     @ViewBuilder
     private var statusLine: some View {
         if let text = status {
-            Text(text)
-                .font(.system(size: 14.5, weight: .medium, design: .rounded))
-                .foregroundStyle(isFailure ? Palette.alert : Palette.inkSoft)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 32)
-                .padding(.top, 10)
-                .transition(.opacity)
-                .animation(.easeInOut(duration: 0.2), value: text)
+            HStack(spacing: 9) {
+                Text(text)
+                    .font(.system(size: 14.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(isFailure ? Palette.alert : Palette.inkSoft)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                if isLoadingModel { LoadingDots() }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 32)
+            .padding(.top, 10)
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+            .animation(.easeInOut(duration: 0.22), value: text)
         }
     }
 
     private var isFailure: Bool {
         if case .failed = call.phase { return true }
         return permissionDenied
+    }
+
+    private var isLoadingModel: Bool {
+        if case .loading = call.phase { return true }
+        return false
     }
 
     private var status: String? {
@@ -328,9 +339,16 @@ private struct TalkButton: View {
             }
         } label: {
             ZStack {
+                // Rings only while she is actually doing something. A button
+                // that pulses at rest is decoration; one that pulses only
+                // when the microphone is open is telling you something.
+                if let rate = pulseRate {
+                    PulseRings(tint: Palette.sky, diameter: 88, rate: rate)
+                }
                 Circle()
                     .fill(Palette.sky.opacity(0.35))
                     .frame(width: 94, height: 94)
+                    .scaleEffect(halo)
                 Circle()
                     .fill(LinearGradient(colors: [Palette.sky, Palette.skyDeep],
                                          startPoint: .topLeading, endPoint: .bottomTrailing))
@@ -339,11 +357,33 @@ private struct TalkButton: View {
                 Image(systemName: glyph)
                     .font(.system(size: 28, weight: .semibold))
                     .foregroundStyle(.white)
+                    // The glyph swaps between mic, stop and hand as the phase
+                    // changes; without a transition it pops.
+                    .contentTransition(.symbolEffect(.replace))
             }
+            .frame(width: 112, height: 112)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle(scale: 0.90))
         .disabled(disabled)
+        .opacity(disabled ? 0.45 : 1)
         .accessibilityLabel(label)
+        .animation(.spring(response: 0.35, dampingFraction: 0.7), value: call.phase)
+    }
+
+    /// How fast the rings leave, or nil for no rings at all.
+    private var pulseRate: Double? {
+        switch call.phase {
+        case .listening: return 1.0
+        case .thinking:  return 0.55
+        case .speaking:  return 1.4
+        default:         return nil
+        }
+    }
+
+    /// The soft ring behind the button swells while she listens, so the
+    /// control grows with your voice the way she does.
+    private var halo: CGFloat {
+        call.phase == .listening ? 1.06 : 1
     }
 
     private var glyph: String {
@@ -468,6 +508,7 @@ private struct ImportPrompt: View {
         VStack(spacing: 20) {
             Spacer()
             MiraFace(phase: .idle, level: 0, height: 250)
+                .riseIn()
             Text("Mira")
                 .font(.system(size: 38, weight: .heavy, design: .rounded))
                 .foregroundStyle(Palette.ink)

@@ -23,7 +23,7 @@ on:
         default: "true"
         options: ["true", "false"]
       bundle_tts:
-        description: "Bundle the on-device voice and speech models (~118MB) — 'false' uses Apple's"
+        description: "Bundle the on-device voice and speech models (~145MB) — 'false' uses Apple's"
         type: choice
         default: "true"
         options: ["true", "false"]
@@ -47,7 +47,7 @@ jobs:
       SHERPA_REF: v1.13.6
       TTS_MODEL: vits-piper-en_US-libritts_r-medium
       TTS_ONNX: en_US-libritts_r-medium.onnx
-      ASR_MODEL: sherpa-onnx-streaming-zipformer-en-20M-2023-02-17
+      ASR_MODEL: sherpa-onnx-streaming-zipformer-en-2023-06-26
     defaults:
       run:
         working-directory: ios
@@ -169,8 +169,8 @@ jobs:
           SRC="/tmp/asr/${ASR_MODEL}"
           DEST=Resources/speech
           rm -rf "$DEST" && mkdir -p "$DEST"
-          # int8 only: the float encoder is 160MB against 41MB quantized, and
-          # the test wavs and export scripts are not needed on a phone.
+          # int8 only: the float encoder alone is 249MB against 67MB quantized,
+          # and the test wavs and export scripts are not needed on a phone.
           cp "$SRC"/encoder-*.int8.onnx "$DEST/encoder.onnx"
           cp "$SRC"/decoder-*.int8.onnx "$DEST/decoder.onnx"
           cp "$SRC"/joiner-*.int8.onnx  "$DEST/joiner.onnx"
@@ -241,6 +241,9 @@ jobs:
           test -f "$APP/Mira" || { echo "missing app binary"; exit 1; }
           test -d "$APP/Frameworks" || { echo "missing embedded frameworks"; exit 1; }
           ls "$APP/Frameworks"
+          # The icon is compiled into Assets.car, so its absence is silent —
+          # you find out when the home screen shows a blank tile.
+          test -f "$APP/Assets.car" || { echo "app icon missing from bundle"; exit 1; }
           if [ "$BUNDLE_TTS" != "false" ]; then
             test -f "$APP/voice/model.onnx" || { echo "voice model missing from bundle"; exit 1; }
             test -d "$APP/voice/espeak-ng-data" || { echo "espeak-ng-data flattened or missing"; exit 1; }

@@ -68,6 +68,9 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"          # iPhone
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: Mira/Info.plist
+        # Mira herself, drawn by tools/make_icon.py from the same constants
+        # MiraFace.swift uses. One 1024 image; iOS 17 derives the rest.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         OTHER_LDFLAGS: ["-lc++"]
         # Unsigned builds: CI overrides these on the command line too.
         CODE_SIGNING_ALLOWED: NO
