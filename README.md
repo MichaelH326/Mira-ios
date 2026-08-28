@@ -243,6 +243,14 @@ vary mostly at random, so neighbours differ by half their length, and blunted
 tips — two curves meeting at a point give a thorn; carrying the tip across a
 short flat between them gives hair.
 
+Loose hairs past the edge do the rest, and they are clipped to everything
+*outside* the mass. That is the whole trick. A strand drawn over her shows
+along its entire length, and a few hundred of those are lines across her face
+tracing whichever ring they were rooted in; clipped this way only the part
+past the outline survives, so they are fuzz on the edge and nothing at all on
+the body. They also have to be short — what shows should be the last tenth of
+a hair, not most of it, or they read as needles.
+
 The app icon is the same mascot, and `tools/make_icon.py` redraws it from the
 same constants rather than tracing a screenshot:
 

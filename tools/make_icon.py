@@ -187,6 +187,47 @@ def soft_rim(width, blur, strength):
     return tinted(mask.filter(ImageFilter.GaussianBlur(blur)), FUR_LIGHT, strength)
 
 
+def fuzz_layer():
+    """Loose hairs reaching past the coat, and nothing on her.
+
+    Masked to everything *outside* the silhouette, which is the whole trick.
+    A strand drawn over her shows along its entire length, and a few hundred
+    of those are lines across her face tracing whichever ring they were rooted
+    in. Masked this way only the part past the outline survives.
+
+    Built as an `L` mask and tinted, never a blurred RGBA layer — see
+    `tinted`.
+    """
+    count = 420
+    mask = Image.new("L", (W, W), 0)
+    draw = ImageDraw.Draw(mask)
+    for index in range(count):
+        seed = index
+        jitter = (hashed(seed) - 0.5) * 0.055
+        angle = index / count * TAU + jitter
+        edge = rim(angle)
+
+        # Rooted just deep enough that the mask always cuts the root off,
+        # and reaching only a little past the outline. Long ones read as
+        # needles, not fuzz — what shows has to be the last tenth of a hair.
+        inner = edge * 0.86
+        outer = edge * (1.01 + hashed(seed * 3.1) * 0.20)
+        bend = (hashed(seed * 4.3) - 0.5) * 0.10
+
+        start = at(angle, inner)
+        mid = at(angle + bend * 0.35, (inner + outer) / 2)
+        tip = at(angle + bend, outer)
+        alpha = int((0.30 + hashed(seed * 5.9) * 0.40) * 255)
+        wide = 0.7 + hashed(seed * 1.7) * 1.7
+        draw.line(quad(start, mid, tip, steps=10), fill=alpha,
+                  width=int(wide * SS), joint="curve")
+
+    mask = mask.filter(ImageFilter.GaussianBlur(1.6 * SS))
+    body = Image.new("L", (W, W), 0)
+    ImageDraw.Draw(body).polygon(blob_points(scale=0.99), fill=255)
+    return Image.composite(Image.new("L", (W, W), 0), mask, body)
+
+
 def diagonal_ramp(dx, dy, small=96):
     """0 where the light comes from, 255 opposite, along (dx, dy).
 
@@ -242,6 +283,20 @@ def main():
         for t in tufts:
             ld.polygon(tuft_polygon(*t), fill=FUR_MID + (255,))
         icon = Image.alpha_composite(icon, layer)
+
+    # Loose hairs past her edge. Without them the coat is a solid shape with
+    # a scalloped outline — the tufts read, but she is not fuzzy.
+    icon = Image.alpha_composite(icon, tinted(fuzz_layer(), FUR_MID, 235))
+
+    # And a soft bloom of the coat's own colour around the outline, so the
+    # edge dissolves instead of ending. Invisible on her — same colour — and
+    # only shows where it spills past her.
+    bloom = Image.new("L", (W, W), 0)
+    ring_pts = blob_points()
+    ImageDraw.Draw(bloom).line(ring_pts + [ring_pts[0]], fill=255,
+                               width=int(RADIUS * 0.12), joint="curve")
+    bloom = bloom.filter(ImageFilter.GaussianBlur(RADIUS * 0.06))
+    icon = Image.alpha_composite(icon, tinted(bloom, FUR_MID, 140))
 
     # One shading pass over the whole of her, and the only thing giving her
     # form: the coat is a single flat colour, so without this she is a

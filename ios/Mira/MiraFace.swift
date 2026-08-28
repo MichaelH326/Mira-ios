@@ -54,7 +54,7 @@ struct MiraFace: View {
     /// That ring roots at 0.84 of the rim and reaches 0.34 × 1.40 beyond it,
     /// so about 1.32 rim in total; this backs off from 0.5 / 1.32 for stroke
     /// width and the bob.
-    private static let bodyFraction: CGFloat = 0.355
+    private static let bodyFraction: CGFloat = 0.345
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
@@ -106,6 +106,12 @@ struct MiraFace: View {
                     hair(coat.tufts, in: &context, centre: centre, radius: base,
                          churn: churn, wobble: wobble, t: t, tint: Palette.furMid)
                 }
+
+                // Loose hairs past her edge. Without them the coat is a solid
+                // shape with a scalloped outline — the tufts read, but she is
+                // not fuzzy.
+                fuzz(in: &context, centre: centre, radius: base,
+                     churn: churn, wobble: wobble, t: t)
 
                 // One shading pass over the whole of her, and the only thing
                 // giving her form: the coat is a single flat colour, so
@@ -350,6 +356,81 @@ struct MiraFace: View {
     private func point(_ centre: CGPoint, _ angle: Double, _ r: CGFloat) -> CGPoint {
         CGPoint(x: centre.x + CGFloat(cos(angle)) * r,
                 y: centre.y + CGFloat(sin(angle)) * r)
+    }
+
+    // MARK: - Fuzz
+
+    /// Loose hairs reaching past the coat.
+    ///
+    /// Clipped to everything *outside* the mass, which is the whole trick.
+    /// A strand drawn over her shows along its entire length, and a few
+    /// hundred of those are lines across her face that trace whichever ring
+    /// they were rooted in — the thing that made her look like arcs of petals.
+    /// Clipped this way only the part past the silhouette survives, so they
+    /// are fuzz on the edge and nothing at all on the body.
+    ///
+    /// In the coat's own colour: a strand in a different tone would put a
+    /// visible fringe around her instead of softening the one she has.
+    private func fuzz(in context: inout GraphicsContext, centre: CGPoint,
+                      radius: CGFloat, churn: Double, wobble: CGFloat, t: Double) {
+        let count = 420
+        let body = blob(centre: centre, radius: radius * 0.99,
+                        churn: churn, wobble: wobble)
+
+        context.drawLayer { layer in
+            layer.clip(to: body, options: .inverse)
+            layer.addFilter(.blur(radius: 1.6))
+            for index in 0..<count {
+                let seed: Double = Double(index)
+                let jitter: Double = (Self.hashed(seed) - 0.5) * 0.055
+                let angle: Double = seed / Double(count) * 2 * .pi + jitter
+                let edge: CGFloat = self.rim(angle: angle, radius: radius,
+                                             churn: churn, wobble: wobble)
+
+                // Rooted just deep enough that the clip always cuts the root
+                // off, and reaching only a little past the outline. Long ones
+                // read as needles or whiskers, not fuzz — what shows has to
+                // be the last tenth of a hair, not most of it.
+                let inner: CGFloat = edge * 0.86
+                let reach: Double = 1.01 + Self.hashed(seed * 3.1) * 0.20
+                let outer: CGFloat = edge * CGFloat(reach)
+
+                let sway: Double = sin(churn * 1.3 + seed * 0.42) * 0.022
+                let bend: Double = (Self.hashed(seed * 4.3) - 0.5) * 0.10
+                let tipAngle: Double = angle + sway + bend
+                let midAngle: Double = angle + sway + bend * 0.35
+                let midRadius: CGFloat = (inner + outer) / 2
+
+                let startX: CGFloat = centre.x + CGFloat(cos(angle)) * inner
+                let startY: CGFloat = centre.y + CGFloat(sin(angle)) * inner
+                let midX: CGFloat = centre.x + CGFloat(cos(midAngle)) * midRadius
+                let midY: CGFloat = centre.y + CGFloat(sin(midAngle)) * midRadius
+                let tipX: CGFloat = centre.x + CGFloat(cos(tipAngle)) * outer
+                let tipY: CGFloat = centre.y + CGFloat(sin(tipAngle)) * outer
+
+                var strand = Path()
+                strand.move(to: CGPoint(x: startX, y: startY))
+                strand.addQuadCurve(to: CGPoint(x: tipX, y: tipY),
+                                    control: CGPoint(x: midX, y: midY))
+
+                let alpha: Double = 0.30 + Self.hashed(seed * 5.9) * 0.40
+                let thickness: CGFloat = 0.7 + CGFloat(Self.hashed(seed * 1.7)) * 1.7
+                layer.stroke(strand,
+                             with: .color(Palette.furMid.opacity(alpha)),
+                             style: StrokeStyle(lineWidth: thickness, lineCap: .round))
+            }
+        }
+
+        // A soft bloom of the coat's own colour around the outline, so the
+        // edge dissolves instead of ending. Invisible on her — same colour —
+        // and only shows where it spills past her.
+        context.drawLayer { layer in
+            layer.addFilter(.blur(radius: radius * 0.06))
+            layer.stroke(blob(centre: centre, radius: radius,
+                              churn: churn, wobble: wobble),
+                         with: .color(Palette.furMid.opacity(0.55)),
+                         lineWidth: radius * 0.12)
+        }
     }
 
     // MARK: - Shading
