@@ -217,11 +217,17 @@ The silhouette is three low harmonics summed around a circle, each drifting at
 its own rate so it never visibly repeats. Low harmonics on purpose: a high one
 puts many small lobes around the rim, and small lobes read as points.
 
-Hair is a solid hairline across the top with soft spikes rising out of it.
-Both halves are needed. Spikes alone read as spikes; a band alone reads as a
-swim cap. The spikes are narrow relative to their spacing so their tips stay
-separate, and their tips are blunted — two curves meeting at a point give a
-thorn, carrying the tip across a short flat between them gives hair.
+She is hair all the way round — the reference is a pom, so tufts ring the
+whole silhouette and the body is only what fills in behind them. Both rings
+are drawn *behind* the body: over it they read as petals lying on her face.
+
+Three things make a ring of spikes read as hair rather than a gear or a sea
+urchin, and all three matter more than the tuft shape does. Lengths vary
+mostly at random, so neighbours differ by half their length. They are longest
+at the crown and shortest underneath. And the tips are blunted — two curves
+meeting at a point give a thorn; carrying the tip across a short flat between
+them gives hair. A second ring, darker and offset half a step, shows between
+the tufts of the first and is what gives the mass depth.
 
 The app icon is the same mascot, and `tools/make_icon.py` redraws it from the
 same constants rather than tracing a screenshot:

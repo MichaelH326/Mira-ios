@@ -33,11 +33,11 @@ OUT = os.path.join(os.path.dirname(__file__), "..", "ios", "Mira",
 
 # The butter theme, which is the app's default. One hue: the field is the
 # accent, she is the pale end of it, her hair the deep end.
-FIELD = (109, 172, 224)
+FIELD = (66, 134, 199)
 FUR_LIGHT = (250, 253, 255)
 FUR_MID = (188, 221, 246)
 FUR_DEEP = (82, 150, 210)
-FUR_BACK = (66, 120, 168)   # the hair behind her: furDeep darkened, not faded
+FUR_BACK = (146, 186, 222)  # the under-ring: furMid darkened, not faded
 EYE = (37, 47, 62)
 CHEEK = (255, 156, 157)
 
@@ -45,7 +45,7 @@ CHEEK = (255, 156, 157)
 # for a fraction of a second at 40 points across, so the shape has to be
 # unmistakable before any detail registers.
 CENTRE = (W / 2, W * 0.560)
-RADIUS = W * 0.315
+RADIUS = W * 0.300
 CHURN = 1.35                # a fixed moment of the animation, chosen for shape
 
 
@@ -69,27 +69,35 @@ def blob_points(scale=1.0, samples=240):
             for a in (i / samples * 2 * math.pi for i in range(samples))]
 
 
-# Tuft(turn, length, width, lean) — turns clockwise from straight up, matching
-# `MiraFace.Tuft`. The back set shows past her sides; the front set rises out
-# of the hairline.
-BACK_TUFTS = [
-    (-0.105, 0.17, 0.018, -0.010),
-    (-0.045, 0.19, 0.017, -0.004),
-    (0.045, 0.19, 0.017, 0.004),
-    (0.105, 0.17, 0.018, 0.010),
-]
-FRONT_TUFTS = [
-    (-0.125, 0.12, 0.016, -0.008),
-    (-0.094, 0.22, 0.015, -0.006),
-    (-0.063, 0.17, 0.015, -0.004),
-    (-0.031, 0.30, 0.016, -0.002),
-    (0.000, 0.20, 0.015, 0.001),
-    (0.031, 0.27, 0.016, 0.003),
-    (0.063, 0.16, 0.015, 0.005),
-    (0.094, 0.24, 0.015, 0.008),
-    (0.125, 0.11, 0.016, 0.012),
-]
-HAIRLINE_REACH = 0.135
+# Hair covers her: tufts ring the whole silhouette, not a fringe on a bald
+# head. Two rings offset by half a step so the under one shows between the
+# tufts of the top one. Generated exactly as `MiraFace.ring` does.
+def hashed(value):
+    """The deterministic 0..1 `MiraFace.hashed` uses, so the rings match."""
+    x = math.sin(value * 12.9898) * 43758.5453
+    return x - math.floor(x)
+
+
+def ring(count, seed, phase, scale=1.0):
+    out = []
+    for index in range(count):
+        step = 1 / count
+        turn = (index + phase) * step - 0.5
+        h1, h2 = hashed(index * 1.7 + seed), hashed(index * 4.1 + seed)
+        # 1 at the crown, 0 underneath: long on top, short below, which is
+        # most of what stops a ring of spikes reading as a sea urchin. The
+        # hash term is the largest of the three — an evenly stepped ring of
+        # equal spikes reads as a gear however soft the tips are.
+        crown = (math.cos(turn * 2 * math.pi) + 1) / 2
+        length = (0.07 + crown * 0.13 + h1 * 0.19) * scale
+        lean = (0.004 + h2 * 0.010) * (-1 if turn < 0 else 1)
+        out.append((turn, length, step * (0.32 + h2 * 0.20), lean))
+    return out
+
+
+TOP_TUFTS = ring(26, 0, 0)
+UNDER_TUFTS = ring(20, 700, 0.5)
+RIM_TUFTS = ring(30, 1400, 0.25, scale=0.34)
 
 TAU = 2 * math.pi
 
@@ -111,7 +119,7 @@ def tuft_polygon(turn, length, width, lean):
     left_base, right_base = axis - width * TAU, axis + width * TAU
     tip_axis = axis + lean * TAU
 
-    root = 0.86
+    root = 0.84
     left_r, right_r = rim(left_base) * root, rim(right_base) * root
     tip_r = rim(tip_axis) * (1 + length)
 
@@ -125,27 +133,6 @@ def tuft_polygon(turn, length, width, lean):
     return (quad(left, ctrl_a, tip_a)
             + quad(tip_a, at(tip_axis, tip_r * 1.03), tip_b)
             + quad(tip_b, ctrl_b, right))
-
-
-def hairline_polygon(samples=80):
-    """The solid mass the spikes grow out of. See `MiraFace.hairline`."""
-    reach = HAIRLINE_REACH
-    outer, inner = [], []
-    for i in range(samples + 1):
-        turn = -reach + i / samples * reach * 2
-        angle = turn * TAU - math.pi / 2
-        outer.append(at(angle, rim(angle) * 1.035))
-        # Tapers to nothing at both ends; a constant thickness leaves blunt
-        # stubs that read as a hat brim. See `MiraFace.hairline`.
-        centreness = math.cos(turn / reach * math.pi / 2) ** 0.6
-        inner.append(at(angle, rim(angle) * (1.035 - centreness * 0.335)))
-    return outer + inner[::-1]
-
-
-def hashed(value):
-    """The deterministic 0..1 `MiraFace.noise` uses, so the fluff matches."""
-    x = math.sin(value * 12.9898) * 43758.5453
-    return x - math.floor(x)
 
 
 def tinted(mask, colour, strength=255):
@@ -194,16 +181,23 @@ def main():
     icon = Image.alpha_composite(icon.convert("RGBA"),
                                  tinted(glow_mask, (255, 255, 255), 48))
 
-    # Hair behind her, then fur, then the body, then hair in front.
+    # The under-ring of hair, then the body, then the ring on top.
     back = Image.new("RGBA", (W, W), (0, 0, 0, 0))
     bd = ImageDraw.Draw(back)
-    for t in BACK_TUFTS:
+    for t in UNDER_TUFTS:
         bd.polygon(tuft_polygon(*t), fill=FUR_BACK + (255,))
     icon = Image.alpha_composite(icon, back)
 
-    # Two soft fringes rather than drawn strands, widest and faintest first.
-    icon = Image.alpha_composite(icon, soft_edge(1.13, RADIUS * 0.10, 70))
-    icon = Image.alpha_composite(icon, soft_edge(1.06, RADIUS * 0.05, 130))
+    top = Image.new("RGBA", (W, W), (0, 0, 0, 0))
+    td = ImageDraw.Draw(top)
+    for t in TOP_TUFTS:
+        td.polygon(tuft_polygon(*t), fill=FUR_MID + (255,))
+    icon = Image.alpha_composite(icon, top)
+
+    # One faint fringe hugging the body. The wider ones that used to sit here
+    # were drawn across the tuft bases and washed them out — the tufts are the
+    # soft edge now.
+    icon = Image.alpha_composite(icon, soft_edge(1.03, RADIUS * 0.045, 90))
 
     body = Image.new("RGBA", (W, W), (0, 0, 0, 0))
     ImageDraw.Draw(body).polygon(blob_points(), fill=FUR_MID + (255,))
@@ -230,19 +224,18 @@ def main():
 
     front = Image.new("RGBA", (W, W), (0, 0, 0, 0))
     fd = ImageDraw.Draw(front)
-    fd.polygon(hairline_polygon(), fill=FUR_DEEP + (255,))
-    for t in FRONT_TUFTS:
-        fd.polygon(tuft_polygon(*t), fill=FUR_DEEP + (255,))
+    for t in RIM_TUFTS:
+        fd.polygon(tuft_polygon(*t), fill=FUR_MID + (180,))
     icon = Image.alpha_composite(icon, front)
 
     # The shadow the hair casts, so it grows out of her rather than sitting on.
     shade_mask = Image.new("L", (W, W), 0)
-    ImageDraw.Draw(shade_mask).ellipse(
-        [CENTRE[0] - RADIUS * 0.62, CENTRE[1] - RADIUS * 0.98,
-         CENTRE[0] + RADIUS * 0.62, CENTRE[1] - RADIUS * 0.58], fill=255)
-    shade_mask = shade_mask.filter(ImageFilter.GaussianBlur(RADIUS * 0.11))
+    root_ring = blob_points(scale=0.94)
+    ImageDraw.Draw(shade_mask).line(root_ring + [root_ring[0]], fill=255,
+                                    width=int(RADIUS * 0.22), joint="curve")
+    shade_mask = shade_mask.filter(ImageFilter.GaussianBlur(RADIUS * 0.05))
     shade_mask = Image.composite(shade_mask, Image.new("L", (W, W), 0), mask)
-    icon = Image.alpha_composite(icon, tinted(shade_mask, FUR_DEEP, 80))
+    icon = Image.alpha_composite(icon, tinted(shade_mask, FUR_DEEP, 78))
 
     # Blush.
     cheek_mask = Image.new("L", (W, W), 0)
