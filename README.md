@@ -237,6 +237,14 @@ same constants rather than tracing a screenshot:
 It writes the single 1024x1024 image iOS 17 derives the rest from. Change
 `MiraFace.swift` and it is worth re-running; the two are meant to match.
 
+The icon is zoomed hard into her — she overflows the tile on every side and
+only the corners are left showing field. A small picture of a whole creature
+reads as a smudge at 40 points across, where a cropped face reads as a face.
+
+The fur's widths and blurs are in points at the size the app draws her, and
+the script scales them by `RADIUS / APP_RADIUS`. Without that they stay a
+fixed pixel width and she looks shaved the further you zoom in.
+
 One thing to know if you edit it: everything soft in that script is a blurred
 `L` mask with a uniform colour poured through it, never a blurred RGBA layer.
 PIL blurs colour channels independently of alpha, so blurring a transparent

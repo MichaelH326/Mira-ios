@@ -42,11 +42,20 @@ CHEEK = (255, 156, 157)
 IRIS_LIGHT = (140, 192, 235)
 IRIS_DEEP = (52, 122, 180)
 
-# She fills more of the tile than she does of the screen. An icon is looked at
-# for a fraction of a second at 40 points across, so the shape has to be
-# unmistakable before any detail registers.
-CENTRE = (W / 2, W * 0.545)
-RADIUS = W * 0.285
+# Zoomed right in: she overflows the tile on every side and only the corners
+# are left showing field. An icon is looked at for a fraction of a second at
+# 40 points across, and a small picture of a whole creature reads as a smudge
+# where a cropped face reads as a face.
+CENTRE = (W / 2, W * 0.520)
+RADIUS = W * 0.520
+
+# The app draws her at roughly this radius in points, and the fur's widths and
+# blurs below are in points at that size. Scaling them by the ratio is what
+# keeps the fluff the same *proportion* of her here as it is on screen —
+# without it the strands stay a fixed pixel width and she looks shaved the
+# further you zoom in.
+APP_RADIUS = 142.0
+FUR_SCALE = RADIUS / APP_RADIUS
 CHURN = 1.35                # a fixed moment of the animation, chosen for shape
 WOBBLE = 0.42               # her resting deviation from a circle
 TAU = 2 * math.pi
@@ -149,11 +158,11 @@ def fur_band(band):
         alpha = int((min_a + hashed(seed * 5.9) * (max_a - min_a)) * 255)
         wide = min_w + hashed(seed * 1.7) * (max_w - min_w)
         draws[tint].line(quad(start, mid, tip), fill=alpha,
-                         width=max(1, int(wide * SS)), joint="curve")
+                         width=max(1, int(wide * FUR_SCALE)), joint="curve")
 
     layer = Image.new("RGBA", (W, W), (0, 0, 0, 0))
     for tint, mask in masks.items():
-        mask = mask.filter(ImageFilter.GaussianBlur(blur * SS))
+        mask = mask.filter(ImageFilter.GaussianBlur(blur * FUR_SCALE))
         layer = Image.alpha_composite(layer, tinted(mask, tint))
     return layer
 
