@@ -236,6 +236,27 @@ shadow to be told apart, and both of those trace the root of every tuft, which
 turns her into concentric arcs of petals. Strands avoid that because they are
 thin enough to read as texture rather than shape.
 
+## Cosmetics
+
+Settings ▸ *Look* dresses her: a hat, glasses and one extra, each independent.
+They are drawn rather than shipped as images, for the same reason she is —
+they have to sit on an outline that changes shape every frame. A hat at a
+fixed offset floats off her head the moment she wobbles, so every piece is
+positioned against `MiraGeometry.rim`, her actual silhouette at that angle
+this frame, and rides her breathing and her bob for free.
+
+Her eye geometry lives on `MiraFace` as shared constants rather than inside
+`eyes`, so glasses find the eyes instead of guessing where they were put.
+
+The card puts her at the top wearing the current selection, because these are
+drawn shapes and a menu of words tells you nothing about how a beanie sits on
+her. Adding a fourth slot is a new enum in `Cosmetics.swift`, one line in
+`MiraFace.body`, and one row in `SettingsView.lookCard`.
+
+The app icon does not draw them: the tile is the app's identity and ships in
+the binary, where what a particular person dressed her in is theirs and
+changes after install.
+
 The app icon is the same mascot, and `tools/make_icon.py` redraws it from the
 same constants rather than tracing a screenshot:
 

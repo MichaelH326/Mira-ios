@@ -4,6 +4,9 @@ import SwiftUI
 /// only looks like it works is worse than no toggle, particularly for the
 /// privacy ones.
 enum Prefs {
+    static let hatKey = "mira.look.hat"
+    static let glassesKey = "mira.look.glasses"
+    static let extraKey = "mira.look.extra"
     static let voiceKey = "mira.voice.speaker"
     static let speedKey = "mira.voice.speed"
     static let hapticsKey = "mira.haptics"
@@ -27,6 +30,9 @@ struct SettingsView: View {
     @AppStorage(Prefs.edgeVoiceKey) private var edgeVoice = "Rosa"
     @AppStorage(Prefs.themeKey) private var theme = Theme.butter.rawValue
     @AppStorage(Prefs.nameKey) private var yourName = ""
+    @AppStorage(Prefs.hatKey) private var hat = Hat.none.rawValue
+    @AppStorage(Prefs.glassesKey) private var glasses = Glasses.none.rawValue
+    @AppStorage(Prefs.extraKey) private var extra = Extra.none.rawValue
 
     @State private var showImporter = false
     @State private var exporting = false
@@ -39,6 +45,7 @@ struct SettingsView: View {
                     VStack(spacing: 16) {
                         header
                         appearanceCard
+                        lookCard
                         voiceCard
                         privacyCard
                         modelCard
@@ -102,6 +109,54 @@ struct SettingsView: View {
                     .foregroundStyle(Palette.ink)
             }
         }
+    }
+
+    /// Dressing Mira up.
+    ///
+    /// She is at the top of the card and wearing whatever is selected, which
+    /// is the whole point of the screen: these are drawn shapes, not named
+    /// things, and a menu of words tells you nothing about how a beanie sits
+    /// on her. Everything below the preview only changes what she has on.
+    private var lookCard: some View {
+        Card(icon: "sparkles", tint: Palette.powder,
+             title: "Look", subtitle: wearing) {
+            MiraFace(phase: .idle, level: 0, height: 168)
+                .padding(.bottom, 2)
+            row("Hat") {
+                Picker("", selection: $hat) {
+                    ForEach(Hat.allCases) { Text($0.name).tag($0.rawValue) }
+                }
+                .pickerStyle(.menu)
+                .tint(Palette.skyInk)
+            }
+            Divider().overlay(Palette.powder)
+            row("Glasses") {
+                Picker("", selection: $glasses) {
+                    ForEach(Glasses.allCases) { Text($0.name).tag($0.rawValue) }
+                }
+                .pickerStyle(.menu)
+                .tint(Palette.skyInk)
+            }
+            Divider().overlay(Palette.powder)
+            row("Extra") {
+                Picker("", selection: $extra) {
+                    ForEach(Extra.allCases) { Text($0.name).tag($0.rawValue) }
+                }
+                .pickerStyle(.menu)
+                .tint(Palette.skyInk)
+            }
+        }
+    }
+
+    /// What she has on, or nothing. Tested against the cases rather than
+    /// against the word "None", which would quietly stop working the day
+    /// someone renames it.
+    private var wearing: String {
+        var worn: [String] = []
+        if let piece = Hat(rawValue: hat), piece != Hat.none { worn.append(piece.name) }
+        if let piece = Glasses(rawValue: glasses), piece != Glasses.none { worn.append(piece.name) }
+        if let piece = Extra(rawValue: extra), piece != Extra.none { worn.append(piece.name) }
+        return worn.isEmpty ? "NOTHING ON" : worn.joined(separator: " · ").uppercased()
     }
 
     private var voiceCard: some View {

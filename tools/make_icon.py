@@ -71,6 +71,9 @@ FACE_CENTRE = (W / 2, W * 0.470)
 # further you zoom in.
 APP_RADIUS = 142.0
 FUR_SCALE = RADIUS / APP_RADIUS
+# Cosmetics are deliberately not drawn here. The tile is the app's identity
+# and it ships in the binary; what a particular person has dressed her in is
+# theirs, and changes after install, which an icon cannot.
 CHURN = 1.35                # a fixed moment of the animation, chosen for shape
 WOBBLE = 0.42               # her resting deviation from a circle
 TAU = 2 * math.pi

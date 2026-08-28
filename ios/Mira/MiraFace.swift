@@ -28,6 +28,13 @@ struct MiraFace: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    // What she is wearing. Read here rather than passed in, so every screen
+    // that draws her — the talk screen, onboarding, the preview in Settings —
+    // picks up a change the moment it is made.
+    @AppStorage(Prefs.hatKey) private var hat = Hat.none.rawValue
+    @AppStorage(Prefs.glassesKey) private var glasses = Glasses.none.rawValue
+    @AppStorage(Prefs.extraKey) private var extra = Extra.none.rawValue
+
     /// Set when she's tapped. She reacts for a moment, then settles.
     @State private var pokedAt: Date?
 
@@ -108,8 +115,20 @@ struct MiraFace: View {
 
                 blush(in: &context, centre: centre, radius: base)
                 eyes(in: &context, centre: centre, radius: base, t: t, poke: poke)
+
+                // Anything she is wearing, over the top of her. Handed her
+                // outline for this frame rather than fixed offsets: at a
+                // fixed offset a hat floats off her head the moment she
+                // wobbles, and she wobbles constantly.
+                let worn = geometry(centre: centre, radius: base, t: t,
+                                    churn: churn, wobble: wobble, poke: poke)
+                Glasses(rawValue: glasses)?.draw(in: &context, on: worn)
+                Extra(rawValue: extra)?.draw(in: &context, on: worn)
+                Hat(rawValue: hat)?.draw(in: &context, on: worn)
             }
-            .frame(minHeight: 190, maxHeight: height)
+            // The floor has to give way to a lower cap, or a caller asking
+            // for a small preview silently gets 190 instead.
+            .frame(minHeight: min(190, height), maxHeight: height)
             .contentShape(Rectangle())
             .onTapGesture { pokedAt = Date() }
         }
@@ -326,16 +345,16 @@ struct MiraFace: View {
                       radius: CGFloat, t: Double, poke: CGFloat) {
         let open: CGFloat = blink(at: t)
         let wide: Bool = poke > 0.05 || isListening
-        let width: CGFloat = radius * (wide ? 0.42 : 0.38)
-        let height: CGFloat = radius * (wide ? 0.60 : 0.54) * open
+        let width: CGFloat = radius * Self.eyeWidth(wide: wide)
+        let height: CGFloat = radius * Self.eyeHeight(wide: wide) * open
         let idleX: CGFloat = CGFloat(sin(t / 2.6)) * radius * 0.012
         let idleY: CGFloat = CGFloat(cos(t / 3.7)) * radius * 0.008
         let driftX: CGFloat = isThinking ? radius * 0.02 : idleX
         let driftY: CGFloat = isThinking ? -radius * 0.03 : idleY
 
         for side in [-1.0, 1.0] as [CGFloat] {
-            let x: CGFloat = centre.x + side * radius * 0.32
-            let y: CGFloat = centre.y - radius * 0.05
+            let x: CGFloat = centre.x + side * radius * Self.eyeSpread
+            let y: CGFloat = centre.y + radius * Self.eyeDrop
 
             let socket = CGRect(x: x - width / 2, y: y - height / 2,
                                 width: width, height: height)
@@ -367,6 +386,36 @@ struct MiraFace: View {
                 with: .color(.white.opacity(0.75)))
         }
     }
+
+    // MARK: - Cosmetics
+
+    /// Where she is this frame, for anything drawn on top of her.
+    private func geometry(centre: CGPoint, radius: CGFloat, t: Double,
+                          churn: Double, wobble: CGFloat, poke: CGFloat) -> MiraGeometry {
+        let wide: Bool = poke > 0.05 || isListening
+        return MiraGeometry(
+            centre: centre,
+            radius: radius,
+            t: t,
+            // Cosmetics measure in turns clockwise from straight up, which is
+            // -pi/2 on screen.
+            rim: { turn in
+                self.rim(angle: turn * 2 * .pi - .pi / 2, radius: radius,
+                         churn: churn, wobble: wobble)
+            },
+            eyeY: centre.y + Self.eyeDrop * radius,
+            eyeSpread: radius * Self.eyeSpread,
+            eyeWidth: radius * Self.eyeWidth(wide: wide),
+            eyeHeight: radius * Self.eyeHeight(wide: wide))
+    }
+
+    // Her eyes' numbers live here rather than inside `eyes`, so glasses can
+    // find the eyes instead of guessing where they were put — and so the two
+    // cannot drift apart.
+    private static let eyeSpread: CGFloat = 0.35
+    private static let eyeDrop: CGFloat = -0.01
+    private static func eyeWidth(wide: Bool) -> CGFloat { wide ? 0.42 : 0.38 }
+    private static func eyeHeight(wide: Bool) -> CGFloat { wide ? 0.60 : 0.54 }
 
     // MARK: - Motion
 
