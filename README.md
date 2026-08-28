@@ -208,48 +208,26 @@ locks.
 
 ## Mira, and the app icon
 
-She is one pastel hue in three steps — a near-white lit side, the pastel
-itself, and a deeper shade for hair and the shadow it casts — rather than a
-blend of colours. That restraint is most of what makes her look designed. The
-hue comes from `Theme`, so picking a scheme in onboarding recolours her.
-
 The silhouette is three low harmonics summed around a circle, each drifting at
 its own rate so it never visibly repeats. Low harmonics on purpose: a high one
 puts many small lobes around the rim, and small lobes read as points.
 
-She is made of hair all the way in — not a ball with a fringe. Concentric
-rings of tufts run from near her centre out past the rim, each long enough to
-reach across the next, so there is no smooth ground anywhere; the fill under
-them exists only so no background shows through the gaps.
+The fluff is three bands of curved strands around that outline — a soft haze
+furthest out, the body of the fluff in the middle, short dense texture close
+in, with width and blur rising and opacity falling as they go outward — plus a
+fourth pass drawn *over* the body, because fur only behind the fill leaves a
+clean arc where the fill ends and that arc is most of what reads as hard.
 
-Every ring is the same colour, and nothing separates one ring from the next:
-their fills merge into one solid mass, and the only thing that breaks her
-outline is the outermost tips.
+Whether she reads as fluffy or spiky is about the strands, not the outline:
+long thin straight ones are spines however many you draw. Each strand is a
+curve, with its tip at a different angle from its root.
 
-The rings still matter — what each contributes is the shape of the silhouette
-where it pokes past the one outside it. But anything that distinguishes a ring
-from its neighbour, a different tint or a dropped shadow, draws the root of
-every tuft in it, and she stops reading as one animal and starts reading as
-concentric arcs of petals. Form comes from one gradient over the whole of her
-instead.
-
-That shading is clipped at the rim and not past it. A mask wider than the fur
-actually reaches darkens bare background around her, which reads as a smudge
-behind her rather than shading on her, and leaving the tips beyond the rim
-unshaded is what makes them look backlit.
-
-Two things make a ring of spikes read as hair rather than a gear: lengths that
-vary mostly at random, so neighbours differ by half their length, and blunted
-tips — two curves meeting at a point give a thorn; carrying the tip across a
-short flat between them gives hair.
-
-Loose hairs past the edge do the rest, and they are clipped to everything
-*outside* the mass. That is the whole trick. A strand drawn over her shows
-along its entire length, and a few hundred of those are lines across her face
-tracing whichever ring they were rooted in; clipped this way only the part
-past the outline survives, so they are fuzz on the edge and nothing at all on
-the body. They also have to be short — what shows should be the last tenth of
-a hair, not most of it, or they read as needles.
+She was rebuilt twice from here — as a fringe on a bald head, then as a coat
+of concentric tuft rings — and reverted both times. Worth knowing before
+trying either again: rings of tufts want either a per-ring tint or a per-ring
+shadow to be told apart, and both of those trace the root of every tuft, which
+turns her into concentric arcs of petals. Strands avoid that because they are
+thin enough to read as texture rather than shape.
 
 The app icon is the same mascot, and `tools/make_icon.py` redraws it from the
 same constants rather than tracing a screenshot:
