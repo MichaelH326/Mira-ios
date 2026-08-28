@@ -207,17 +207,17 @@ def main():
     cd = ImageDraw.Draw(cheeks)
     for side in (-1, 1):
         cw, ch = RADIUS * 0.32, RADIUS * 0.18
-        cx, cy = CENTRE[0] + side * RADIUS * 0.52, CENTRE[1] + RADIUS * 0.34
+        cx, cy = CENTRE[0] + side * RADIUS * 0.56, CENTRE[1] + RADIUS * 0.41
         cd.ellipse([cx - cw / 2, cy - ch / 2, cx + cw / 2, cy + ch / 2], fill=255)
     cheeks = cheeks.filter(ImageFilter.GaussianBlur(RADIUS * 0.06))
     icon = Image.alpha_composite(icon, tinted(cheeks, CHEEK, 100))
 
     # Eyes.
     eyes = ImageDraw.Draw(icon)
-    ew, eh = RADIUS * 0.30, RADIUS * 0.41
+    ew, eh = RADIUS * 0.38, RADIUS * 0.54
     for side in (-1, 1):
-        ex = CENTRE[0] + side * RADIUS * 0.32
-        ey = CENTRE[1] + RADIUS * 0.02
+        ex = CENTRE[0] + side * RADIUS * 0.35
+        ey = CENTRE[1] - RADIUS * 0.01
         eyes.rounded_rectangle([ex - ew / 2, ey - eh / 2, ex + ew / 2, ey + eh / 2],
                                radius=ew / 2, fill=EYE + (255,))
         # The app gives the iris a light-to-dark gradient; at icon size that

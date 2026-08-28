@@ -303,8 +303,8 @@ struct MiraFace: View {
             for side in [-1.0, 1.0] as [CGFloat] {
                 let width: CGFloat = radius * 0.32
                 let height: CGFloat = radius * 0.18
-                let x: CGFloat = centre.x + side * radius * 0.52 - width / 2
-                let y: CGFloat = centre.y + radius * 0.26
+                let x: CGFloat = centre.x + side * radius * 0.56 - width / 2
+                let y: CGFloat = centre.y + radius * 0.32
                 let rect = CGRect(x: x, y: y, width: width, height: height)
                 layer.fill(Path(ellipseIn: rect), with: .color(Palette.cheek.opacity(0.34)))
             }
@@ -318,8 +318,8 @@ struct MiraFace: View {
                       radius: CGFloat, t: Double, poke: CGFloat) {
         let open: CGFloat = blink(at: t)
         let wide: Bool = poke > 0.05 || isListening
-        let width: CGFloat = radius * (wide ? 0.33 : 0.30)
-        let height: CGFloat = radius * (wide ? 0.46 : 0.41) * open
+        let width: CGFloat = radius * (wide ? 0.42 : 0.38)
+        let height: CGFloat = radius * (wide ? 0.60 : 0.54) * open
         let idleX: CGFloat = CGFloat(sin(t / 2.6)) * radius * 0.012
         let idleY: CGFloat = CGFloat(cos(t / 3.7)) * radius * 0.008
         let driftX: CGFloat = isThinking ? radius * 0.02 : idleX
