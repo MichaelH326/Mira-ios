@@ -21,8 +21,9 @@ struct MiraFace: View {
     let phase: CallViewModel.Phase
     /// 0…1 microphone level, only meaningful while listening.
     let level: Float
-    /// Overridable so the screens where she shares the view with something
-    /// else can give her less room than the talk screen does.
+    /// The most room she may take. Overridable so the screens where she
+    /// shares the view with something else can cap her lower than the talk
+    /// screen does.
     var height: CGFloat = MiraFace.canvasHeight
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -38,9 +39,17 @@ struct MiraFace: View {
     private static let mid = Color(red: 1.00, green: 0.937, blue: 0.878)
     private static let edge = Color(red: 0.996, green: 0.855, blue: 0.769)
 
-    /// The drawing area. She fills it — she is the screen's centrepiece, not
-    /// an illustration sitting above the controls.
-    static let canvasHeight: CGFloat = 320
+    /// The most drawing area she will take. A cap rather than a fixed height:
+    /// the frame is flexible below it, so on a small phone she gives room
+    /// back to the caption and the controls instead of pushing them off.
+    static let canvasHeight: CGFloat = 380
+
+    /// The body as a fraction of the space available, chosen so that the body
+    /// plus the longest strand plus the float still fits. The outer fur band
+    /// reaches 24% past the rim, so 0.5 / 1.24 is the largest body that never
+    /// clips; this backs off from that to leave room for stroke width and the
+    /// bob.
+    private static let bodyFraction: CGFloat = 0.375
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
@@ -54,7 +63,7 @@ struct MiraFace: View {
                 let span: CGFloat = min(size.width, size.height)
                 let centre = CGPoint(x: size.width / 2,
                                      y: size.height / 2 + bob(at: t))
-                let base: CGFloat = span * 0.36 * (1 + poke * 0.06)
+                let base: CGFloat = span * Self.bodyFraction * (1 + poke * 0.06)
                 let outline = blob(centre: centre, radius: base, churn: churn, wobble: wobble)
 
                 // A wide soft halo, so she sits in light rather than on top of it.
@@ -92,7 +101,7 @@ struct MiraFace: View {
                 blush(in: &context, centre: centre, radius: base)
                 eyes(in: &context, centre: centre, radius: base, t: t, poke: poke)
             }
-            .frame(height: height)
+            .frame(minHeight: 190, maxHeight: height)
             .contentShape(Rectangle())
             .onTapGesture { pokedAt = Date() }
         }
@@ -292,10 +301,10 @@ struct MiraFace: View {
         context.drawLayer { layer in
             layer.addFilter(.blur(radius: 11))
             for side in [-1.0, 1.0] as [CGFloat] {
-                let width: CGFloat = radius * 0.30
-                let height: CGFloat = radius * 0.17
-                let x: CGFloat = centre.x + side * radius * 0.46 - width / 2
-                let y: CGFloat = centre.y + radius * 0.20
+                let width: CGFloat = radius * 0.32
+                let height: CGFloat = radius * 0.18
+                let x: CGFloat = centre.x + side * radius * 0.52 - width / 2
+                let y: CGFloat = centre.y + radius * 0.26
                 let rect = CGRect(x: x, y: y, width: width, height: height)
                 layer.fill(Path(ellipseIn: rect), with: .color(Palette.cheek.opacity(0.34)))
             }
@@ -309,16 +318,16 @@ struct MiraFace: View {
                       radius: CGFloat, t: Double, poke: CGFloat) {
         let open: CGFloat = blink(at: t)
         let wide: Bool = poke > 0.05 || isListening
-        let width: CGFloat = radius * (wide ? 0.24 : 0.21)
-        let height: CGFloat = radius * (wide ? 0.32 : 0.28) * open
+        let width: CGFloat = radius * (wide ? 0.33 : 0.30)
+        let height: CGFloat = radius * (wide ? 0.46 : 0.41) * open
         let idleX: CGFloat = CGFloat(sin(t / 2.6)) * radius * 0.012
         let idleY: CGFloat = CGFloat(cos(t / 3.7)) * radius * 0.008
         let driftX: CGFloat = isThinking ? radius * 0.02 : idleX
         let driftY: CGFloat = isThinking ? -radius * 0.03 : idleY
 
         for side in [-1.0, 1.0] as [CGFloat] {
-            let x: CGFloat = centre.x + side * radius * 0.30
-            let y: CGFloat = centre.y - radius * 0.06
+            let x: CGFloat = centre.x + side * radius * 0.32
+            let y: CGFloat = centre.y - radius * 0.05
 
             let socket = CGRect(x: x - width / 2, y: y - height / 2,
                                 width: width, height: height)

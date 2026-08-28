@@ -94,7 +94,11 @@ private struct TalkView: View {
             } else {
                 if resting { greeting }
                 Spacer(minLength: 0)
+                // Takes its space before the spacers do: her frame is
+                // flexible now, so without this the spacers would split the
+                // slack with her and she would never reach full size.
                 MiraFace(phase: call.phase, level: listener.audioLevel)
+                    .layoutPriority(1)
                 CaptionBand(caption: caption)
                 Spacer(minLength: 0)
             }
