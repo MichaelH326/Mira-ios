@@ -222,12 +222,16 @@ rings of tufts run from near her centre out past the rim, each long enough to
 reach across the next, so there is no smooth ground anywhere; the fill under
 them exists only so no background shows through the gaps.
 
-Every ring is the same colour. She is one flat pastel top to bottom, and what
-tells the layers apart is shading rather than hue: each ring drops a blurred,
-darkened, offset copy of its own tufts onto the ring beneath before it is
-filled, and one gradient over the whole mass gives her form. Tinting the rings
-differently instead is what made her look washed out — pale in the middle,
-coloured only at the edge.
+Every ring is the same colour, and nothing separates one ring from the next:
+their fills merge into one solid mass, and the only thing that breaks her
+outline is the outermost tips.
+
+The rings still matter — what each contributes is the shape of the silhouette
+where it pokes past the one outside it. But anything that distinguishes a ring
+from its neighbour, a different tint or a dropped shadow, draws the root of
+every tuft in it, and she stops reading as one animal and starts reading as
+concentric arcs of petals. Form comes from one gradient over the whole of her
+instead.
 
 That shading is clipped at the rim and not past it. A mask wider than the fur
 actually reaches darkens bare background around her, which reads as a smudge

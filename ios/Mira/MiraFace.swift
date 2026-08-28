@@ -94,31 +94,17 @@ struct MiraFace: View {
                                   churn: churn, wobble: wobble),
                              with: .color(Palette.furMid))
 
-                // The coat, innermost ring first, every ring the same colour.
-                //
-                // What separates the layers is the shadow each one drops on
-                // the one beneath: the same tufts, blurred, darkened and
-                // offset down and right, drawn just before the ring itself so
-                // only the part past its own edges survives. Without it a coat
-                // of one flat colour is a single silhouette with no interior
-                // at all — every overlap is invisible.
+                // The coat, innermost ring first, every ring the same colour
+                // and nothing between them. Rings used to drop a shadow on
+                // the ring beneath so the layers could be told apart, and it
+                // did exactly that — including tracing every root, so she
+                // read as concentric arcs of tufts rather than one animal.
+                // With the shadows gone the fills merge seamlessly and only
+                // the outermost tips break the silhouette, which is the whole
+                // point of the rings being the same colour.
                 for coat in Self.coats {
-                    context.drawLayer { layer in
-                        layer.translateBy(x: base * 0.035, y: base * 0.05)
-                        layer.addFilter(.blur(radius: base * 0.05))
-                        hair(coat.tufts, in: &layer, centre: centre, radius: base,
-                             churn: churn, wobble: wobble, t: t,
-                             tint: Palette.furDeep.opacity(0.55))
-                    }
                     hair(coat.tufts, in: &context, centre: centre, radius: base,
                          churn: churn, wobble: wobble, t: t, tint: Palette.furMid)
-                }
-
-                // Fine strands over the whole coat, catching the light. The
-                // tufts give the mass its shape; these give it its texture.
-                for band in Self.furLayers {
-                    fur(band, in: &context, centre: centre,
-                        radius: base, churn: churn, wobble: wobble)
                 }
 
                 // One shading pass over the whole of her, and the only thing
@@ -250,12 +236,16 @@ struct MiraFace: View {
     /// see is a hundred overlapping soft spikes, and the fill underneath
     /// exists only so no background shows between them.
     ///
-    /// Every ring is the same colour — she is one flat pastel, top to bottom.
-    /// What tells the layers apart is shading, not hue: each ring drops a
-    /// blurred shadow onto the one beneath it before it is filled, and a
-    /// single gradient over the whole mass at the end gives her form. Tinting
-    /// the rings differently instead is what made her look washed out, pale
-    /// in the middle and coloured only at the edge.
+    /// Every ring is the same colour, and the rings are not separated from
+    /// one another at all — their fills merge into one solid mass, and the
+    /// only thing that breaks her outline is the outermost tips.
+    ///
+    /// The rings still matter: what each one contributes is the shape of the
+    /// silhouette where it pokes past the one outside it. But anything that
+    /// distinguishes a ring from its neighbour — a different tint, a dropped
+    /// shadow — draws the root of every tuft in it, and she stops reading as
+    /// one animal and starts reading as concentric arcs of petals. Form comes
+    /// from one gradient over the whole of her instead.
     private static let coats: [Ring] = [
         Ring(tufts: ring(count: 12, seed: 0, phase: 0.00,
                          root: 0.20, length: 0.34, width: 0.34)),
@@ -362,134 +352,13 @@ struct MiraFace: View {
                 y: centre.y + CGFloat(sin(angle)) * r)
     }
 
-    // MARK: - Fur
-
-    /// One band of strands around the rim. Quieter than it was: the hair now
-    /// carries the character, and two loud textures read as noise.
-    private struct FurLayer {
-        let count: Int
-        let minLength: Double
-        let maxLength: Double
-        let minWidth: CGFloat
-        let maxWidth: CGFloat
-        let minAlpha: Double
-        let maxAlpha: Double
-        let blur: CGFloat
-        let curl: Double
-        let seedOffset: Double
-    }
-
-    private static let furLayers: [FurLayer] = [
-        FurLayer(count: 90, minLength: 0.10, maxLength: 0.20,
-                 minWidth: 1.6, maxWidth: 3.0, minAlpha: 0.10, maxAlpha: 0.22,
-                 blur: 2.2, curl: 0.30, seedOffset: 0),
-        FurLayer(count: 110, minLength: 0.08, maxLength: 0.16,
-                 minWidth: 1.2, maxWidth: 2.4, minAlpha: 0.14, maxAlpha: 0.30,
-                 blur: 1.0, curl: 0.22, seedOffset: 500)
-    ]
-
-    /// Strands rooted just inside the rim, curving outward. Lengths, widths
-    /// and angles come from a hash of the index, so the fluff is irregular but
-    /// identical frame to frame — re-randomising each frame makes it boil.
-    private func fur(_ band: FurLayer, in context: inout GraphicsContext,
-                     centre: CGPoint, radius: CGFloat,
-                     churn: Double, wobble: CGFloat) {
-        context.drawLayer { canvas in
-            canvas.addFilter(.blur(radius: band.blur))
-            for index in 0..<band.count {
-                let seed: Double = Double(index) + band.seedOffset
-                let jitter: Double = (noise(seed) - 0.5) * 0.09
-                let angle: Double = Double(index) / Double(band.count) * 2 * .pi + jitter
-                let edgeRadius: CGFloat = self.rim(angle: angle, radius: radius,
-                                                   churn: churn, wobble: wobble)
-
-                let lengthSpan: Double = band.maxLength - band.minLength
-                let lengthFactor: Double = band.minLength + noise(seed * 3.1) * lengthSpan
-                let length: CGFloat = radius * CGFloat(lengthFactor)
-                // Rooted anywhere from a third of the way in to just under
-                // the rim, so the strands read across the whole coat rather
-                // than only around its edge.
-                let innerFactor: Double = 0.30 + noise(seed * 7.7) * 0.58
-                let inner: CGFloat = edgeRadius * CGFloat(innerFactor)
-                let outer: CGFloat = inner + length
-
-                let sway: Double = sin(churn * 1.4 + seed * 0.35) * 0.035
-                let bend: Double = (noise(seed * 4.3) - 0.5) * band.curl
-                let tipAngle: Double = angle + sway + bend
-                let midAngle: Double = angle + sway + bend * 0.35
-                let midRadius: CGFloat = (inner + outer) / 2
-
-                let startX: CGFloat = centre.x + CGFloat(cos(angle)) * inner
-                let startY: CGFloat = centre.y + CGFloat(sin(angle)) * inner
-                let midX: CGFloat = centre.x + CGFloat(cos(midAngle)) * midRadius
-                let midY: CGFloat = centre.y + CGFloat(sin(midAngle)) * midRadius
-                let tipX: CGFloat = centre.x + CGFloat(cos(tipAngle)) * outer
-                let tipY: CGFloat = centre.y + CGFloat(sin(tipAngle)) * outer
-
-                var strand = Path()
-                strand.move(to: CGPoint(x: startX, y: startY))
-                strand.addQuadCurve(to: CGPoint(x: tipX, y: tipY),
-                                    control: CGPoint(x: midX, y: midY))
-
-                let pale: Bool = noise(seed * 2.3) > 0.42
-                let tint: Color = pale ? Palette.furLight : Palette.furMid
-                let alphaSpan: Double = band.maxAlpha - band.minAlpha
-                let alpha: Double = band.minAlpha + noise(seed * 5.9) * alphaSpan
-                let widthSpan: CGFloat = band.maxWidth - band.minWidth
-                let thickness: CGFloat = band.minWidth + CGFloat(noise(seed * 1.7)) * widthSpan
-
-                canvas.stroke(strand,
-                              with: .color(tint.opacity(alpha)),
-                              style: StrokeStyle(lineWidth: thickness, lineCap: .round))
-            }
-        }
-    }
-
-    /// Light across the whole mass, clipped to it.
-    ///
-    /// Two halves that have to travel together: a lit crown up and to the
-    /// left, and a deepening toward the lower right. Either alone reads as a
-    /// smudge; together they read as a round thing under a light.
-    private func shading(in context: inout GraphicsContext, centre: CGPoint,
-                         radius: CGFloat, churn: Double, wobble: CGFloat) {
-        // Clipped at the rim and not past it. A mask wider than the fur
-        // actually reaches darkens bare background around her, which reads as
-        // a smudge behind her rather than shading on her — and leaving the
-        // tips beyond the rim unshaded is what makes them look backlit.
-        let mass = blob(centre: centre, radius: radius,
-                        churn: churn, wobble: wobble)
-        let box = CGRect(x: centre.x - radius * 1.4, y: centre.y - radius * 1.4,
-                         width: radius * 2.8, height: radius * 2.8)
-
-        context.drawLayer { layer in
-            layer.clip(to: mass)
-            layer.fill(Path(box), with: .linearGradient(
-                Gradient(colors: [Palette.furDeep.opacity(0),
-                                  Palette.furDeep.opacity(0.56)]),
-                startPoint: CGPoint(x: centre.x - radius * 0.5,
-                                    y: centre.y - radius * 0.8),
-                endPoint: CGPoint(x: centre.x + radius * 0.9,
-                                  y: centre.y + radius * 1.1)))
-        }
-
-        context.drawLayer { layer in
-            layer.clip(to: mass)
-            layer.addFilter(.blur(radius: radius * 0.26))
-            let lit = CGRect(x: centre.x - radius * 0.98, y: centre.y - radius * 1.05,
-                             width: radius * 1.25, height: radius * 1.20)
-            layer.fill(Path(ellipseIn: lit),
-                       with: .color(Palette.furLight.opacity(0.60)))
-        }
-    }
-
     /// Deterministic 0…1 from an index. Not good noise; good enough for
     /// fluff. Static because the tuft rings are built before any instance is.
+    /// Kept identical in tools/make_icon.py, so the icon's coat is the app's.
     static func hashed(_ value: Double) -> Double {
         let x = sin(value * 12.9898) * 43758.5453
         return x - x.rounded(.down)
     }
-
-    private func noise(_ value: Double) -> Double { Self.hashed(value) }
 
     // MARK: - Face
 

@@ -231,19 +231,12 @@ def main():
     ImageDraw.Draw(ground).polygon(blob_points(scale=0.90), fill=FUR_MID + (255,))
     icon = Image.alpha_composite(icon, ground)
 
-    # The coat, innermost ring first, every ring the same colour. What
-    # separates them is the shadow each drops on the one beneath: the same
-    # tufts, blurred, darkened and offset down and right, drawn just before
-    # the ring itself so only the part past its own edges survives.
+    # The coat, innermost ring first, every ring the same colour and nothing
+    # between them. Rings used to drop a shadow on the ring beneath so the
+    # layers could be told apart, and it did exactly that — including tracing
+    # every root, so she read as concentric arcs of tufts rather than one
+    # animal. With the shadows gone the fills merge seamlessly.
     for tufts in COATS:
-        shadow = Image.new("L", (W, W), 0)
-        sd = ImageDraw.Draw(shadow)
-        for t in tufts:
-            sd.polygon(tuft_polygon(*t), fill=255)
-        shadow = shadow.filter(ImageFilter.GaussianBlur(RADIUS * 0.05))
-        shadow = ImageChops.offset(shadow, int(RADIUS * 0.035), int(RADIUS * 0.05))
-        icon = Image.alpha_composite(icon, tinted(shadow, FUR_DEEP, 140))
-
         layer = Image.new("RGBA", (W, W), (0, 0, 0, 0))
         ld = ImageDraw.Draw(layer)
         for t in tufts:
