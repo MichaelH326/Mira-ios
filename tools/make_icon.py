@@ -30,10 +30,8 @@ W = SIZE * SS
 OUT = os.path.join(os.path.dirname(__file__), "..", "ios", "Mira",
                    "Assets.xcassets", "AppIcon.appiconset", "icon-1024.png")
 
-# Her own three creams, straight out of `MiraFace`, on a field taken from the
-# butter theme's accent. Blue behind cream is the most contrast the app's own
-# palette offers, which is what an icon needs.
-FIELD = (120, 178, 228)
+# Her own three creams, straight out of `MiraFace`. There is no field colour
+# any more: at this zoom she covers the tile.
 CORE = (255, 252, 248)
 MID = (255, 239, 224)
 EDGE = (254, 218, 196)
@@ -42,12 +40,29 @@ CHEEK = (255, 156, 157)
 IRIS_LIGHT = (140, 192, 235)
 IRIS_DEEP = (52, 122, 180)
 
-# Zoomed right in: she overflows the tile on every side and only the corners
-# are left showing field. An icon is looked at for a fraction of a second at
-# 40 points across, and a small picture of a whole creature reads as a smudge
-# where a cropped face reads as a face.
-CENTRE = (W / 2, W * 0.520)
-RADIUS = W * 0.520
+# All the way in: her body covers the whole tile, corners included, with no
+# background behind her at all. An icon is looked at for a fraction of a
+# second at 40 points across, and a small picture of a whole creature reads as
+# a smudge where a cropped face reads as a face.
+#
+# The corners are the constraint. They sit half a diagonal out — 0.707 of the
+# width — and her rim dips to 0.942 of RADIUS at its narrowest, so anything
+# under 0.75 leaves blue triangles in the corners.
+CENTRE = (W / 2, W / 2)
+RADIUS = W * 0.780
+
+# Her face is sized against this rather than against RADIUS, and it is the one
+# place the icon stops being a straight scale of what the app draws.
+#
+# Two constraints pull opposite ways. Covering the tile forces RADIUS past
+# 0.75, and everything on her face is a fraction of her body radius — so at
+# that size the eyes crowd the edges and the blush falls off the bottom, and
+# she reads as an abstract pattern rather than a face. Sizing the face
+# separately is what lets the fill go edge to edge and the face stay composed.
+FACE = W * 0.620
+# And its own centre, a little above the tile's, so the forehead above her
+# eyes and the cheeks below them share the frame evenly.
+FACE_CENTRE = (W / 2, W * 0.470)
 
 # The app draws her at roughly this radius in points, and the fur's widths and
 # blurs below are in points at that size. Scaling them by the ratio is what
@@ -167,22 +182,29 @@ def fur_band(band):
     return layer
 
 
-def main():
-    icon = Image.new("RGBA", (W, W), FIELD + (255,))
+def rim_is_on_the_tile():
+    """Whether any part of her outline lands inside the square.
 
-    # A soft lift in the upper left, so the field is not a flat rectangle.
-    glow = Image.new("L", (W, W), 0)
-    ImageDraw.Draw(glow).ellipse([-W * 0.25, -W * 0.35, W * 0.85, W * 0.55],
-                                 fill=255)
-    glow = glow.filter(ImageFilter.GaussianBlur(W * 0.06))
-    icon = Image.alpha_composite(icon, tinted(glow, (255, 255, 255), 52))
+    At full zoom it does not, and then every pass that draws the edge — the
+    fur bands, the soft rim, the field behind her — is invisible. Worth
+    asking rather than assuming: these are the slow passes, and the answer
+    changes the moment anyone dials the zoom back.
+    """
+    closest = min(rim(i / 240 * TAU) for i in range(240))
+    return closest < W * 0.5 * math.sqrt(2)
+
+
+def main():
+    # Her outermost colour as the ground, so nothing behind her can show
+    # through even where the outline misses a corner by a pixel.
+    icon = Image.new("RGBA", (W, W), EDGE + (255,))
 
     body_mask = Image.new("L", (W, W), 0)
     ImageDraw.Draw(body_mask).polygon(blob_points(), fill=255)
 
-    # Fur behind the body, widest and faintest band first.
-    for band in FUR_BANDS:
-        icon = Image.alpha_composite(icon, fur_band(band))
+    if rim_is_on_the_tile():
+        for band in FUR_BANDS:
+            icon = Image.alpha_composite(icon, fur_band(band))
 
     # The body: the app draws a radial gradient from core through mid to edge,
     # offset up and left. PIL has no radial gradient, so it is three clipped
@@ -198,35 +220,36 @@ def main():
         lit = Image.composite(lit, Image.new("L", (W, W), 0), body_mask)
         icon = Image.alpha_composite(icon, tinted(lit, tint))
 
-    # The softest edge: a blurred rim inside the silhouette, which is what
-    # stops it reading as a hard vector shape.
-    ring = blob_points()
-    soft = Image.new("L", (W, W), 0)
-    ImageDraw.Draw(soft).line(ring + [ring[0]], fill=255,
-                              width=int(RADIUS * 0.09), joint="curve")
-    soft = soft.filter(ImageFilter.GaussianBlur(RADIUS * 0.035))
-    icon = Image.alpha_composite(icon, tinted(soft, EDGE, 215))
+    if rim_is_on_the_tile():
+        # The softest edge: a blurred rim inside the silhouette, which is what
+        # stops it reading as a hard vector shape.
+        ring = blob_points()
+        soft = Image.new("L", (W, W), 0)
+        ImageDraw.Draw(soft).line(ring + [ring[0]], fill=255,
+                                  width=int(RADIUS * 0.09), joint="curve")
+        soft = soft.filter(ImageFilter.GaussianBlur(RADIUS * 0.035))
+        icon = Image.alpha_composite(icon, tinted(soft, EDGE, 215))
 
-    # A last pass over the rim. Fur behind the body alone leaves a clean arc
-    # where the fill ends; these break it.
-    icon = Image.alpha_composite(icon, fur_band(TOP_FUZZ))
+        # A last pass over the rim. Fur behind the body alone leaves a clean
+        # arc where the fill ends; these break it.
+        icon = Image.alpha_composite(icon, fur_band(TOP_FUZZ))
 
     # Blush.
     cheeks = Image.new("L", (W, W), 0)
     cd = ImageDraw.Draw(cheeks)
     for side in (-1, 1):
-        cw, ch = RADIUS * 0.32, RADIUS * 0.18
-        cx, cy = CENTRE[0] + side * RADIUS * 0.56, CENTRE[1] + RADIUS * 0.41
+        cw, ch = FACE * 0.32, FACE * 0.18
+        cx, cy = FACE_CENTRE[0] + side * FACE * 0.56, FACE_CENTRE[1] + FACE * 0.41
         cd.ellipse([cx - cw / 2, cy - ch / 2, cx + cw / 2, cy + ch / 2], fill=255)
-    cheeks = cheeks.filter(ImageFilter.GaussianBlur(RADIUS * 0.06))
+    cheeks = cheeks.filter(ImageFilter.GaussianBlur(FACE * 0.06))
     icon = Image.alpha_composite(icon, tinted(cheeks, CHEEK, 100))
 
     # Eyes.
     eyes = ImageDraw.Draw(icon)
-    ew, eh = RADIUS * 0.38, RADIUS * 0.54
+    ew, eh = FACE * 0.38, FACE * 0.54
     for side in (-1, 1):
-        ex = CENTRE[0] + side * RADIUS * 0.35
-        ey = CENTRE[1] - RADIUS * 0.01
+        ex = FACE_CENTRE[0] + side * FACE * 0.35
+        ey = FACE_CENTRE[1] - FACE * 0.01
         eyes.rounded_rectangle([ex - ew / 2, ey - eh / 2, ex + ew / 2, ey + eh / 2],
                                radius=ew / 2, fill=EYE + (255,))
         # The app gives the iris a light-to-dark gradient; at icon size that
