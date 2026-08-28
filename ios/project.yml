@@ -23,8 +23,15 @@ targets:
       - path: Mira
         excludes:
           - "Info.plist"
+          - "Assets.xcassets"
       - path: Mira/Info.plist
         buildPhase: none
+      # Listed explicitly, and excluded from the scan above so it is not
+      # added twice. Picked up by the directory scan it produced no Assets.car
+      # at all, and a missing app icon is silent until a blank tile shows up
+      # on the home screen.
+      - path: Mira/Assets.xcassets
+        buildPhase: resources
       # mira.mdlo is dropped here by CI (or by you locally) and copied into
       # the app bundle. Optional so the project still builds without it.
       - path: Resources
