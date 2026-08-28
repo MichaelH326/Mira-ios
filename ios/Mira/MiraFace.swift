@@ -76,8 +76,11 @@ struct MiraFace: View {
 
                 // Hair behind the body reads as depth: you see the far side of
                 // her head past the near side.
-                hair(Self.backTufts, in: &context, centre: centre, radius: base,
-                     churn: churn, wobble: wobble, t: t, tint: Palette.furDeep.opacity(0.75))
+                context.drawLayer { layer in
+                    layer.addFilter(.colorMultiply(Color(white: 0.80)))
+                    hair(Self.backTufts, in: &layer, centre: centre, radius: base,
+                         churn: churn, wobble: wobble, t: t, tint: Palette.furDeep)
+                }
 
                 for band in Self.furLayers {
                     fur(band, in: &context, centre: centre,
@@ -221,38 +224,44 @@ struct MiraFace: View {
         let sway: Double        // how much it moves on its own
     }
 
-    /// Behind the body: a few long ones showing past her sides, which is what
-    /// gives the head depth instead of a flat disc.
+    /// Behind the body: a couple showing past the crown, which is what gives
+    /// the head depth instead of a flat disc. Kept well above the horizontal —
+    /// a tuft at a quarter turn hangs down her side, and enough of those and
+    /// she is wearing a wig rather than growing hair on top.
     private static let backTufts: [Tuft] = [
-        Tuft(turn: -0.315, length: 0.26, width: 0.030, lean: -0.070, sway: 0.9),
-        Tuft(turn: -0.250, length: 0.22, width: 0.028, lean: -0.055, sway: 1.2),
-        Tuft(turn: -0.075, length: 0.20, width: 0.026, lean: -0.020, sway: 1.0),
-        Tuft(turn:  0.075, length: 0.20, width: 0.026, lean:  0.020, sway: 1.1),
-        Tuft(turn:  0.250, length: 0.22, width: 0.028, lean:  0.055, sway: 1.2),
-        Tuft(turn:  0.315, length: 0.26, width: 0.030, lean:  0.070, sway: 0.8)
+        Tuft(turn: -0.105, length: 0.17, width: 0.018, lean: -0.010, sway: 1.0),
+        Tuft(turn: -0.045, length: 0.19, width: 0.017, lean: -0.004, sway: 1.2),
+        Tuft(turn:  0.045, length: 0.19, width: 0.017, lean:  0.004, sway: 1.1),
+        Tuft(turn:  0.105, length: 0.17, width: 0.018, lean:  0.010, sway: 0.9)
     ]
 
-    /// In front. Narrow relative to their spacing, so the tips stay separate —
-    /// wide ones merge into a single lump and the whole head reads as wearing
-    /// a cap. The lengths are deliberately uneven, and the long off-centre one
-    /// is the cowlick: it does most of the work of making her look like a
-    /// character rather than a shape.
+    /// In front, across the top of her head only — nothing past about a sixth
+    /// of a turn either way, which is where the crown stops and the side of
+    /// her face begins.
+    ///
+    /// Narrow relative to their spacing, so the tips stay separate: wide ones
+    /// merge into a single lump and the whole head reads as wearing a cap. The
+    /// lengths are deliberately uneven, and the long off-centre one is the
+    /// cowlick — it does most of the work of making her look like a character
+    /// rather than a shape.
     private static let frontTufts: [Tuft] = [
-        Tuft(turn: -0.290, length: 0.16, width: 0.026, lean: -0.070, sway: 1.4),
-        Tuft(turn: -0.232, length: 0.27, width: 0.025, lean: -0.052, sway: 1.1),
-        Tuft(turn: -0.174, length: 0.19, width: 0.024, lean: -0.038, sway: 1.3),
-        Tuft(turn: -0.116, length: 0.34, width: 0.026, lean: -0.030, sway: 0.9),
-        Tuft(turn: -0.058, length: 0.22, width: 0.024, lean: -0.012, sway: 1.2),
-        Tuft(turn:  0.000, length: 0.29, width: 0.025, lean:  0.006, sway: 1.0),
-        Tuft(turn:  0.058, length: 0.18, width: 0.024, lean:  0.020, sway: 1.3),
-        Tuft(turn:  0.116, length: 0.31, width: 0.026, lean:  0.034, sway: 0.9),
-        Tuft(turn:  0.174, length: 0.20, width: 0.024, lean:  0.048, sway: 1.2),
-        Tuft(turn:  0.232, length: 0.25, width: 0.025, lean:  0.062, sway: 1.1),
-        Tuft(turn:  0.290, length: 0.15, width: 0.026, lean:  0.078, sway: 1.4)
+        Tuft(turn: -0.125, length: 0.12, width: 0.016, lean: -0.008, sway: 1.4),
+        Tuft(turn: -0.094, length: 0.22, width: 0.015, lean: -0.006, sway: 1.1),
+        Tuft(turn: -0.063, length: 0.17, width: 0.015, lean: -0.004, sway: 1.3),
+        Tuft(turn: -0.031, length: 0.30, width: 0.016, lean: -0.002, sway: 0.9),
+        Tuft(turn:  0.000, length: 0.20, width: 0.015, lean:  0.001, sway: 1.2),
+        Tuft(turn:  0.031, length: 0.27, width: 0.016, lean:  0.003, sway: 1.0),
+        Tuft(turn:  0.063, length: 0.16, width: 0.015, lean:  0.005, sway: 1.3),
+        Tuft(turn:  0.094, length: 0.24, width: 0.015, lean:  0.008, sway: 0.9),
+        Tuft(turn:  0.125, length: 0.11, width: 0.016, lean:  0.012, sway: 1.2)
     ]
 
-    /// How far around the top the solid hairline reaches, in turns.
-    private static let hairlineReach: Double = 0.30
+    /// How far around the top the solid hairline reaches, in turns. Just
+    /// under 50 degrees either side of straight up — the crown, and nothing
+    /// down the sides of her head. The outermost tufts stay inside this and
+    /// barely lean, because a tuft that leans outward at the edge projects
+    /// sideways however short it is.
+    private static let hairlineReach: Double = 0.135
 
     /// The solid band of hair across the top of her head.
     ///
@@ -276,14 +285,17 @@ struct MiraFace: View {
             let p = point(centre, angle, r)
             if index == 0 { path.move(to: p) } else { path.addLine(to: p) }
         }
-        // And back along the inner edge, dipping lowest at the middle so the
-        // fringe comes to a soft point over her face.
+        // And back along the inner edge. This has to meet the outer edge at
+        // both ends: holding a constant thickness leaves a blunt stub where
+        // the fringe stops, and two of those read as a hat brim rather than
+        // hair. Tapering to nothing gives the crescent a point at each side.
         for index in stride(from: samples, through: 0, by: -1) {
             let turn: Double = -reach + Double(index) / Double(samples) * reach * 2
             let angle: Double = turn * 2 * .pi - .pi / 2
-            // 1 in the middle, 0 at the ends.
-            let centreness: Double = cos(turn / reach * .pi / 2)
-            let depth: Double = 0.90 - centreness * (0.20 + dip)
+            // 1 in the middle, 0 at the ends. The power keeps it thick across
+            // most of the crown and spends the taper near the very ends.
+            let centreness: Double = pow(cos(turn / reach * .pi / 2), 0.6)
+            let depth: Double = 1.035 - centreness * (0.335 + dip)
             let r: CGFloat = rim(angle: angle, radius: radius,
                                  churn: churn, wobble: wobble) * CGFloat(depth)
             path.addLine(to: point(centre, angle, r))
@@ -352,9 +364,9 @@ struct MiraFace: View {
                             centre: CGPoint, radius: CGFloat) {
         context.drawLayer { layer in
             layer.addFilter(.blur(radius: 14))
-            let rect = CGRect(x: centre.x - radius * 0.80,
-                              y: centre.y - radius * 0.96,
-                              width: radius * 1.60, height: radius * 0.44)
+            let rect = CGRect(x: centre.x - radius * 0.62,
+                              y: centre.y - radius * 0.98,
+                              width: radius * 1.24, height: radius * 0.40)
             layer.fill(Path(ellipseIn: rect), with: .color(Palette.furDeep.opacity(0.28)))
         }
     }
