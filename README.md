@@ -217,17 +217,27 @@ The silhouette is three low harmonics summed around a circle, each drifting at
 its own rate so it never visibly repeats. Low harmonics on purpose: a high one
 puts many small lobes around the rim, and small lobes read as points.
 
-She is hair all the way round — the reference is a pom, so tufts ring the
-whole silhouette and the body is only what fills in behind them. Both rings
-are drawn *behind* the body: over it they read as petals lying on her face.
+She is made of hair all the way in — not a ball with a fringe. Concentric
+rings of tufts run from near her centre out past the rim, each long enough to
+reach across the next, so there is no smooth ground anywhere; the fill under
+them exists only so no background shows through the gaps.
 
-Three things make a ring of spikes read as hair rather than a gear or a sea
-urchin, and all three matter more than the tuft shape does. Lengths vary
-mostly at random, so neighbours differ by half their length. They are longest
-at the crown and shortest underneath. And the tips are blunted — two curves
-meeting at a point give a thorn; carrying the tip across a short flat between
-them gives hair. A second ring, darker and offset half a step, shows between
-the tufts of the first and is what gives the mass depth.
+Every ring is the same colour. She is one flat pastel top to bottom, and what
+tells the layers apart is shading rather than hue: each ring drops a blurred,
+darkened, offset copy of its own tufts onto the ring beneath before it is
+filled, and one gradient over the whole mass gives her form. Tinting the rings
+differently instead is what made her look washed out — pale in the middle,
+coloured only at the edge.
+
+That shading is clipped at the rim and not past it. A mask wider than the fur
+actually reaches darkens bare background around her, which reads as a smudge
+behind her rather than shading on her, and leaving the tips beyond the rim
+unshaded is what makes them look backlit.
+
+Two things make a ring of spikes read as hair rather than a gear: lengths that
+vary mostly at random, so neighbours differ by half their length, and blunted
+tips — two curves meeting at a point give a thorn; carrying the tip across a
+short flat between them gives hair.
 
 The app icon is the same mascot, and `tools/make_icon.py` redraws it from the
 same constants rather than tracing a screenshot:

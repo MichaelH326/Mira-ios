@@ -22,7 +22,7 @@ import math
 import os
 import random
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 SIZE = 1024
 SS = 4                      # supersample factor
@@ -78,7 +78,8 @@ def hashed(value):
     return x - math.floor(x)
 
 
-def ring(count, seed, phase, scale=1.0):
+def ring(count, seed, phase, root, length, width):
+    """One layer of the coat. Mirrors `MiraFace.ring`."""
     out = []
     for index in range(count):
         step = 1 / count
@@ -89,15 +90,32 @@ def ring(count, seed, phase, scale=1.0):
         # hash term is the largest of the three — an evenly stepped ring of
         # equal spikes reads as a gear however soft the tips are.
         crown = (math.cos(turn * 2 * math.pi) + 1) / 2
-        length = (0.07 + crown * 0.13 + h1 * 0.19) * scale
+        scale = 0.55 + crown * 0.25 + h1 * 0.60
         lean = (0.004 + h2 * 0.010) * (-1 if turn < 0 else 1)
-        out.append((turn, length, step * (0.32 + h2 * 0.20), lean))
+        # Root jittered, or every tip in a ring lands on a circle and five
+        # rings read as a dahlia. Width wide relative to length, or each tuft
+        # is a petal rather than fur. See `MiraFace.ring`.
+        out.append((turn, root, length * scale,
+                    step * (width + h2 * 0.22), lean))
     return out
 
 
-TOP_TUFTS = ring(26, 0, 0)
-UNDER_TUFTS = ring(20, 700, 0.5)
-RIM_TUFTS = ring(30, 1400, 0.25, scale=0.34)
+# She is made of hair all the way in: concentric rings from near her centre
+# out past the rim, each long enough to reach across the next, so there is no
+# smooth ground anywhere. (tufts, shade) — shade 0 is the pale inner colour,
+# 1 the full pastel.
+# Every ring is the same colour — she is one flat pastel, top to bottom. What
+# tells the layers apart is shading, not hue: each drops a blurred shadow on
+# the one beneath before it is filled, and one gradient over the whole mass
+# gives her form.
+COATS = [
+    ring(12, 0, 0.00, 0.20, 0.34, 0.34),
+    ring(16, 300, 0.35, 0.38, 0.34, 0.34),
+    ring(20, 600, 0.15, 0.55, 0.33, 0.34),
+    ring(24, 900, 0.45, 0.70, 0.33, 0.34),
+    ring(28, 1200, 0.20, 0.84, 0.34, 0.34),
+]
+UNDER_COAT = ring(22, 1900, 0.5, 0.80, 0.32, 0.34)
 
 TAU = 2 * math.pi
 
@@ -113,15 +131,14 @@ def quad(p0, p1, p2, steps=24):
     return out
 
 
-def tuft_polygon(turn, length, width, lean):
+def tuft_polygon(turn, root, length, width, lean):
     """One soft spike: curved sides, blunt tip. See `MiraFace.hair`."""
     axis = turn * TAU - math.pi / 2
     left_base, right_base = axis - width * TAU, axis + width * TAU
     tip_axis = axis + lean * TAU
 
-    root = 0.84
     left_r, right_r = rim(left_base) * root, rim(right_base) * root
-    tip_r = rim(tip_axis) * (1 + length)
+    tip_r = rim(tip_axis) * (root + length)
 
     left, right = at(left_base, left_r), at(right_base, right_r)
     spread = width * 0.30 * TAU
@@ -170,6 +187,25 @@ def soft_rim(width, blur, strength):
     return tinted(mask.filter(ImageFilter.GaussianBlur(blur)), FUR_LIGHT, strength)
 
 
+def diagonal_ramp(dx, dy, small=96):
+    """0 where the light comes from, 255 opposite, along (dx, dy).
+
+    Built small and scaled up. Rotating PIL's own linear_gradient leaves its
+    corners filled with a constant, and those corners land on the icon as
+    patches of flat shading.
+    """
+    ramp = Image.new("L", (small, small))
+    pixels = ramp.load()
+    length = math.hypot(dx, dy) or 1
+    ux, uy = dx / length, dy / length
+    for y in range(small):
+        for x in range(small):
+            # Projection onto the light direction, remapped to 0..1.
+            t = ((x / small - 0.5) * ux + (y / small - 0.5) * uy) + 0.5
+            pixels[x, y] = max(0, min(255, int((1 - t) * 255)))
+    return ramp.resize((W, W), Image.BICUBIC)
+
+
 def main():
     icon = Image.new("RGB", (W, W), FIELD)
 
@@ -181,61 +217,61 @@ def main():
     icon = Image.alpha_composite(icon.convert("RGBA"),
                                  tinted(glow_mask, (255, 255, 255), 48))
 
-    # The under-ring of hair, then the body, then the ring on top.
+    # The far side of the coat: darker, offset half a step so it shows
+    # between the tufts in front.
     back = Image.new("RGBA", (W, W), (0, 0, 0, 0))
     bd = ImageDraw.Draw(back)
-    for t in UNDER_TUFTS:
+    for t in UNDER_COAT:
         bd.polygon(tuft_polygon(*t), fill=FUR_BACK + (255,))
     icon = Image.alpha_composite(icon, back)
 
-    top = Image.new("RGBA", (W, W), (0, 0, 0, 0))
-    td = ImageDraw.Draw(top)
-    for t in TOP_TUFTS:
-        td.polygon(tuft_polygon(*t), fill=FUR_MID + (255,))
-    icon = Image.alpha_composite(icon, top)
+    # The ground, in the same colour as the coat. Not the body — every part
+    # of it ends up under a tuft; it is only here so no field shows through.
+    ground = Image.new("RGBA", (W, W), (0, 0, 0, 0))
+    ImageDraw.Draw(ground).polygon(blob_points(scale=0.90), fill=FUR_MID + (255,))
+    icon = Image.alpha_composite(icon, ground)
 
-    # One faint fringe hugging the body. The wider ones that used to sit here
-    # were drawn across the tuft bases and washed them out — the tufts are the
-    # soft edge now.
-    icon = Image.alpha_composite(icon, soft_edge(1.03, RADIUS * 0.045, 90))
+    # The coat, innermost ring first, every ring the same colour. What
+    # separates them is the shadow each drops on the one beneath: the same
+    # tufts, blurred, darkened and offset down and right, drawn just before
+    # the ring itself so only the part past its own edges survives.
+    for tufts in COATS:
+        shadow = Image.new("L", (W, W), 0)
+        sd = ImageDraw.Draw(shadow)
+        for t in tufts:
+            sd.polygon(tuft_polygon(*t), fill=255)
+        shadow = shadow.filter(ImageFilter.GaussianBlur(RADIUS * 0.05))
+        shadow = ImageChops.offset(shadow, int(RADIUS * 0.035), int(RADIUS * 0.05))
+        icon = Image.alpha_composite(icon, tinted(shadow, FUR_DEEP, 140))
 
-    body = Image.new("RGBA", (W, W), (0, 0, 0, 0))
-    ImageDraw.Draw(body).polygon(blob_points(), fill=FUR_MID + (255,))
-    icon = Image.alpha_composite(icon, body)
+        layer = Image.new("RGBA", (W, W), (0, 0, 0, 0))
+        ld = ImageDraw.Draw(layer)
+        for t in tufts:
+            ld.polygon(tuft_polygon(*t), fill=FUR_MID + (255,))
+        icon = Image.alpha_composite(icon, layer)
 
-    # The lit side: a pale ellipse up and to the left, blurred and clipped to
-    # the body — the radial gradient the app draws. Partial alpha, because at
-    # full strength it repaints her white and the pastel is the point.
-    mask = Image.new("L", (W, W), 0)
-    ImageDraw.Draw(mask).polygon(blob_points(), fill=255)
+    # One shading pass over the whole of her, and the only thing giving her
+    # form: the coat is a single flat colour, so without this she is a
+    # silhouette. Light from the upper left, deepening to the lower right.
+    #
+    # Masked to the rim and not past it. A mask wider than the fur actually
+    # reaches darkens bare field around her, which reads as a smudge behind
+    # her rather than shading on her — and leaving the tips beyond the rim
+    # unshaded is what makes them look backlit.
+    mass = Image.new("L", (W, W), 0)
+    ImageDraw.Draw(mass).polygon(blob_points(), fill=255)
+
+    ramp = Image.composite(diagonal_ramp(-0.62, -0.78),
+                           Image.new("L", (W, W), 0), mass)
+    icon = Image.alpha_composite(icon, tinted(ramp, FUR_DEEP, 150))
 
     lit_mask = Image.new("L", (W, W), 0)
-    lx, ly = CENTRE[0] - RADIUS * 0.30, CENTRE[1] - RADIUS * 0.38
     ImageDraw.Draw(lit_mask).ellipse(
-        [lx - RADIUS * 0.62, ly - RADIUS * 0.62, lx + RADIUS * 0.62, ly + RADIUS * 0.62],
-        fill=255)
-    lit_mask = lit_mask.filter(ImageFilter.GaussianBlur(RADIUS * 0.32))
-    lit_mask = Image.composite(lit_mask, Image.new("L", (W, W), 0), mask)
-    icon = Image.alpha_composite(icon, tinted(lit_mask, FUR_LIGHT, 150))
-
-    # And a ring on the rim itself, which is what keeps the edge from
-    # resolving into a hard line.
-    icon = Image.alpha_composite(icon, soft_rim(RADIUS * 0.06, RADIUS * 0.032, 85))
-
-    front = Image.new("RGBA", (W, W), (0, 0, 0, 0))
-    fd = ImageDraw.Draw(front)
-    for t in RIM_TUFTS:
-        fd.polygon(tuft_polygon(*t), fill=FUR_MID + (180,))
-    icon = Image.alpha_composite(icon, front)
-
-    # The shadow the hair casts, so it grows out of her rather than sitting on.
-    shade_mask = Image.new("L", (W, W), 0)
-    root_ring = blob_points(scale=0.94)
-    ImageDraw.Draw(shade_mask).line(root_ring + [root_ring[0]], fill=255,
-                                    width=int(RADIUS * 0.22), joint="curve")
-    shade_mask = shade_mask.filter(ImageFilter.GaussianBlur(RADIUS * 0.05))
-    shade_mask = Image.composite(shade_mask, Image.new("L", (W, W), 0), mask)
-    icon = Image.alpha_composite(icon, tinted(shade_mask, FUR_DEEP, 78))
+        [CENTRE[0] - RADIUS * 0.98, CENTRE[1] - RADIUS * 1.05,
+         CENTRE[0] + RADIUS * 0.27, CENTRE[1] + RADIUS * 0.15], fill=255)
+    lit_mask = lit_mask.filter(ImageFilter.GaussianBlur(RADIUS * 0.26))
+    lit_mask = Image.composite(lit_mask, Image.new("L", (W, W), 0), mass)
+    icon = Image.alpha_composite(icon, tinted(lit_mask, FUR_LIGHT, 155))
 
     # Blush.
     cheek_mask = Image.new("L", (W, W), 0)

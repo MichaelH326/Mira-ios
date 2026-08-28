@@ -50,10 +50,11 @@ struct MiraFace: View {
     static let canvasHeight: CGFloat = 400
 
     /// The body as a fraction of the space available, chosen so that the body
-    /// plus the tallest hair tuft plus the float still fits. Hair reaches 39%
-    /// past the rim, so 0.5 / 1.39 is the largest body that never clips; this
-    /// backs off from that for stroke width and the bob.
-    private static let bodyFraction: CGFloat = 0.345
+    /// plus the longest tuft of the outermost ring plus the float still fits.
+    /// That ring roots at 0.84 of the rim and reaches 0.34 × 1.40 beyond it,
+    /// so about 1.32 rim in total; this backs off from 0.5 / 1.32 for stroke
+    /// width and the bob.
+    private static let bodyFraction: CGFloat = 0.355
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
@@ -76,55 +77,56 @@ struct MiraFace: View {
                     layer.fill(outline, with: .color(Palette.furDeep.opacity(0.30)))
                 }
 
-                // Both rings of hair, behind the body. Drawn over it they read
-                // as petals lying on her face; behind it only what passes the
-                // rim shows, and the silhouette does the work.
-                //
-                // The under ring is darker rather than translucent: a
-                // see-through layer reads as a ghost of the one in front,
-                // not as depth.
+                // The far side of the coat: darker, and offset half a step so
+                // it shows between the tufts in front. Darker rather than
+                // translucent — a see-through layer reads as a ghost of the
+                // one in front, not as depth.
                 context.drawLayer { layer in
                     layer.addFilter(.colorMultiply(Color(white: 0.86)))
-                    hair(Self.underTufts, in: &layer, centre: centre, radius: base,
+                    hair(Self.underCoat, in: &layer, centre: centre, radius: base,
                          churn: churn, wobble: wobble, t: t, tint: Palette.furMid)
                 }
-                hair(Self.topTufts, in: &context, centre: centre, radius: base,
-                     churn: churn, wobble: wobble, t: t, tint: Palette.furMid)
 
+                // The ground the coat is drawn on, in the same colour as the
+                // coat. Not the body — every part of it ends up under a tuft;
+                // it is only here so no background shows through the gaps.
+                context.fill(blob(centre: centre, radius: base * 0.90,
+                                  churn: churn, wobble: wobble),
+                             with: .color(Palette.furMid))
+
+                // The coat, innermost ring first, every ring the same colour.
+                //
+                // What separates the layers is the shadow each one drops on
+                // the one beneath: the same tufts, blurred, darkened and
+                // offset down and right, drawn just before the ring itself so
+                // only the part past its own edges survives. Without it a coat
+                // of one flat colour is a single silhouette with no interior
+                // at all — every overlap is invisible.
+                for coat in Self.coats {
+                    context.drawLayer { layer in
+                        layer.translateBy(x: base * 0.035, y: base * 0.05)
+                        layer.addFilter(.blur(radius: base * 0.05))
+                        hair(coat.tufts, in: &layer, centre: centre, radius: base,
+                             churn: churn, wobble: wobble, t: t,
+                             tint: Palette.furDeep.opacity(0.55))
+                    }
+                    hair(coat.tufts, in: &context, centre: centre, radius: base,
+                         churn: churn, wobble: wobble, t: t, tint: Palette.furMid)
+                }
+
+                // Fine strands over the whole coat, catching the light. The
+                // tufts give the mass its shape; these give it its texture.
                 for band in Self.furLayers {
                     fur(band, in: &context, centre: centre,
                         radius: base, churn: churn, wobble: wobble)
                 }
 
-                context.fill(
-                    outline,
-                    with: .radialGradient(
-                        Gradient(colors: [Palette.furLight, Palette.furMid]),
-                        center: CGPoint(x: centre.x - base * 0.26, y: centre.y - base * 0.34),
-                        startRadius: base * 0.05, endRadius: base * 1.25)
-                )
-
-                // The softest edge: a blurred rim inside the silhouette, which
-                // is what stops it reading as a hard vector shape.
-                context.drawLayer { layer in
-                    layer.addFilter(.blur(radius: 10))
-                    layer.stroke(outline, with: .color(Palette.furMid.opacity(0.9)), lineWidth: 16)
-                }
-
-                // A last pass over the rim. Fur behind the body alone leaves a
-                // clean arc where the fill ends; these break it.
-                fur(Self.topFuzz, in: &context, centre: centre,
-                    radius: base, churn: churn, wobble: wobble)
-
-                // A short ring drawn over the rim, breaking the arc where the
-                // body's fill ends so the edge never resolves into a line.
-                hair(Self.rimTufts, in: &context, centre: centre, radius: base,
-                     churn: churn, wobble: wobble, t: t,
-                     tint: Palette.furMid.opacity(0.7))
-                // Where the hair meets the body, darkened. Without it the
-                // tufts look stuck on rather than growing out.
-                rootShadow(in: &context, centre: centre, radius: base,
-                           churn: churn, wobble: wobble)
+                // One shading pass over the whole of her, and the only thing
+                // giving her form: the coat is a single flat colour, so
+                // without this she is a silhouette. Light from the upper left,
+                // deepening across to the lower right, clipped to her.
+                shading(in: &context, centre: centre, radius: base,
+                        churn: churn, wobble: wobble)
 
                 blush(in: &context, centre: centre, radius: base)
                 eyes(in: &context, centre: centre, radius: base, t: t, poke: poke)
@@ -228,30 +230,52 @@ struct MiraFace: View {
     /// they read as clock positions rather than radians.
     private struct Tuft {
         let turn: Double        // 0 = straight up, ±0.25 = the sides
-        let length: Double      // as a fraction of the body radius
+        let root: Double        // fraction of the rim where it starts
+        let length: Double      // as a fraction of the rim
         let width: Double       // half-width at the base, in turns
         let lean: Double        // tip offset, in turns
         let sway: Double        // how much it moves on its own
     }
 
-    /// Hair covers her. Not a fringe on a bald head — the reference is a
-    /// pom, and the whole creature is hair, so tufts ring the entire
-    /// silhouette and the body underneath is only what fills in behind them.
+    /// One layer of the coat.
+    private struct Ring {
+        let tufts: [Tuft]
+    }
+
+    /// She is made of hair, all the way in.
     ///
-    /// Two rings, offset by half a step so the under one shows between the
-    /// tufts of the top one. Generated rather than hand-listed: at this count
-    /// a literal table is unreadable, and what actually matters is the
-    /// profile — long at the crown, short underneath — which is far clearer
-    /// as an expression than as forty numbers.
-    private static let topTufts: [Tuft] = ring(count: 26, seed: 0, phase: 0)
-    private static let underTufts: [Tuft] = ring(count: 20, seed: 700, phase: 0.5)
-    /// Short, and drawn over the body rather than behind it.
-    private static let rimTufts: [Tuft] = ring(count: 30, seed: 1400, phase: 0.25,
-                                               scale: 0.34)
+    /// Not a ball with a fringe: an actual coat, drawn as concentric rings of
+    /// tufts from near her centre out past the rim, each ring long enough to
+    /// reach across the next so there is no smooth ground anywhere. What you
+    /// see is a hundred overlapping soft spikes, and the fill underneath
+    /// exists only so no background shows between them.
+    ///
+    /// Every ring is the same colour — she is one flat pastel, top to bottom.
+    /// What tells the layers apart is shading, not hue: each ring drops a
+    /// blurred shadow onto the one beneath it before it is filled, and a
+    /// single gradient over the whole mass at the end gives her form. Tinting
+    /// the rings differently instead is what made her look washed out, pale
+    /// in the middle and coloured only at the edge.
+    private static let coats: [Ring] = [
+        Ring(tufts: ring(count: 12, seed: 0, phase: 0.00,
+                         root: 0.20, length: 0.34, width: 0.34)),
+        Ring(tufts: ring(count: 16, seed: 300, phase: 0.35,
+                         root: 0.38, length: 0.34, width: 0.34)),
+        Ring(tufts: ring(count: 20, seed: 600, phase: 0.15,
+                         root: 0.55, length: 0.33, width: 0.34)),
+        Ring(tufts: ring(count: 24, seed: 900, phase: 0.45,
+                         root: 0.70, length: 0.33, width: 0.34)),
+        Ring(tufts: ring(count: 28, seed: 1200, phase: 0.20,
+                         root: 0.84, length: 0.34, width: 0.34))
+    ]
+
+    /// Drawn behind everything, darker, so the mass has a far side.
+    private static let underCoat: [Tuft] = ring(count: 22, seed: 1900, phase: 0.5,
+                                                root: 0.80, length: 0.32, width: 0.34)
 
     /// One ring of tufts. `phase` offsets it by that fraction of a step.
     private static func ring(count: Int, seed: Double, phase: Double,
-                             scale: Double = 1) -> [Tuft] {
+                             root: Double, length: Double, width: Double) -> [Tuft] {
         (0..<count).map { index in
             let step: Double = 1 / Double(count)
             let turn: Double = (Double(index) + phase) * step - 0.5
@@ -266,16 +290,16 @@ struct MiraFace: View {
             // stepped ring of equal spikes reads as a gear or a flower however
             // soft the tips are; neighbours differing by half their length is
             // what makes it hair.
-            let base: Double = 0.07 + crown * 0.13 + hash * 0.19
-            let length: Double = base * scale
+            let scale: Double = 0.55 + crown * 0.25 + hash * 0.60
 
             // Everything leans the same way round, as if combed, with the
             // lean smallest where the tufts are longest.
             let lean: Double = (0.004 + hash2 * 0.010) * (turn < 0 ? -1 : 1)
 
             return Tuft(turn: turn,
-                        length: length,
-                        width: step * (0.32 + hash2 * 0.20),
+                        root: root,
+                        length: length * scale,
+                        width: step * (width + hash2 * 0.22),
                         lean: lean,
                         sway: 0.8 + hash2 * 0.7)
         }
@@ -299,16 +323,14 @@ struct MiraFace: View {
             let rightBase: Double = axis + tuft.width * 2 * .pi
             let tipAxis: Double = axis + lean * 2 * .pi
 
-            // Rooted well inside the rim so each tuft grows out of the mass
-            // rather than balancing on its edge.
-            let root: CGFloat = 0.84
+            let root: CGFloat = CGFloat(tuft.root)
+            let reach: CGFloat = CGFloat(tuft.root + tuft.length)
             let leftR: CGFloat = rim(angle: leftBase, radius: radius,
                                      churn: churn, wobble: wobble) * root
             let rightR: CGFloat = rim(angle: rightBase, radius: radius,
                                       churn: churn, wobble: wobble) * root
             let tipR: CGFloat = rim(angle: tipAxis, radius: radius,
-                                    churn: churn, wobble: wobble)
-                * (1 + CGFloat(tuft.length))
+                                    churn: churn, wobble: wobble) * reach
 
             let left = point(centre, leftBase, leftR)
             let right = point(centre, rightBase, rightR)
@@ -335,22 +357,6 @@ struct MiraFace: View {
         }
     }
 
-    /// A darkened ring just inside the rim, where the tufts root.
-    ///
-    /// Blurred hard so it is a gradation and not an edge. Without it the
-    /// tufts sit on the body like cut-outs; with it they read as the same
-    /// mass of hair seen from the outside.
-    private func rootShadow(in context: inout GraphicsContext, centre: CGPoint,
-                            radius: CGFloat, churn: Double, wobble: CGFloat) {
-        context.drawLayer { layer in
-            layer.addFilter(.blur(radius: 12))
-            let ring = blob(centre: centre, radius: radius * 0.94,
-                            churn: churn, wobble: wobble)
-            layer.stroke(ring, with: .color(Palette.furDeep.opacity(0.30)),
-                         lineWidth: radius * 0.22)
-        }
-    }
-
     private func point(_ centre: CGPoint, _ angle: Double, _ r: CGFloat) -> CGPoint {
         CGPoint(x: centre.x + CGFloat(cos(angle)) * r,
                 y: centre.y + CGFloat(sin(angle)) * r)
@@ -374,19 +380,13 @@ struct MiraFace: View {
     }
 
     private static let furLayers: [FurLayer] = [
-        FurLayer(count: 80, minLength: 0.08, maxLength: 0.15,
-                 minWidth: 3.0, maxWidth: 6.0, minAlpha: 0.10, maxAlpha: 0.22,
-                 blur: 6.0, curl: 0.34, seedOffset: 0),
-        FurLayer(count: 120, minLength: 0.05, maxLength: 0.10,
-                 minWidth: 2.2, maxWidth: 4.2, minAlpha: 0.18, maxAlpha: 0.34,
-                 blur: 2.6, curl: 0.24, seedOffset: 500)
+        FurLayer(count: 90, minLength: 0.10, maxLength: 0.20,
+                 minWidth: 1.6, maxWidth: 3.0, minAlpha: 0.10, maxAlpha: 0.22,
+                 blur: 2.2, curl: 0.30, seedOffset: 0),
+        FurLayer(count: 110, minLength: 0.08, maxLength: 0.16,
+                 minWidth: 1.2, maxWidth: 2.4, minAlpha: 0.14, maxAlpha: 0.30,
+                 blur: 1.0, curl: 0.22, seedOffset: 500)
     ]
-
-    /// Drawn over the body rather than behind it, to break the rim.
-    private static let topFuzz = FurLayer(count: 100, minLength: 0.025, maxLength: 0.06,
-                                          minWidth: 1.8, maxWidth: 3.4,
-                                          minAlpha: 0.22, maxAlpha: 0.42,
-                                          blur: 1.6, curl: 0.20, seedOffset: 2000)
 
     /// Strands rooted just inside the rim, curving outward. Lengths, widths
     /// and angles come from a hash of the index, so the fluff is irregular but
@@ -406,9 +406,12 @@ struct MiraFace: View {
                 let lengthSpan: Double = band.maxLength - band.minLength
                 let lengthFactor: Double = band.minLength + noise(seed * 3.1) * lengthSpan
                 let length: CGFloat = radius * CGFloat(lengthFactor)
-                let innerFactor: Double = 0.90 + noise(seed * 7.7) * 0.07
+                // Rooted anywhere from a third of the way in to just under
+                // the rim, so the strands read across the whole coat rather
+                // than only around its edge.
+                let innerFactor: Double = 0.30 + noise(seed * 7.7) * 0.58
                 let inner: CGFloat = edgeRadius * CGFloat(innerFactor)
-                let outer: CGFloat = edgeRadius + length
+                let outer: CGFloat = inner + length
 
                 let sway: Double = sin(churn * 1.4 + seed * 0.35) * 0.035
                 let bend: Double = (noise(seed * 4.3) - 0.5) * band.curl
@@ -439,6 +442,43 @@ struct MiraFace: View {
                               with: .color(tint.opacity(alpha)),
                               style: StrokeStyle(lineWidth: thickness, lineCap: .round))
             }
+        }
+    }
+
+    /// Light across the whole mass, clipped to it.
+    ///
+    /// Two halves that have to travel together: a lit crown up and to the
+    /// left, and a deepening toward the lower right. Either alone reads as a
+    /// smudge; together they read as a round thing under a light.
+    private func shading(in context: inout GraphicsContext, centre: CGPoint,
+                         radius: CGFloat, churn: Double, wobble: CGFloat) {
+        // Clipped at the rim and not past it. A mask wider than the fur
+        // actually reaches darkens bare background around her, which reads as
+        // a smudge behind her rather than shading on her — and leaving the
+        // tips beyond the rim unshaded is what makes them look backlit.
+        let mass = blob(centre: centre, radius: radius,
+                        churn: churn, wobble: wobble)
+        let box = CGRect(x: centre.x - radius * 1.4, y: centre.y - radius * 1.4,
+                         width: radius * 2.8, height: radius * 2.8)
+
+        context.drawLayer { layer in
+            layer.clip(to: mass)
+            layer.fill(Path(box), with: .linearGradient(
+                Gradient(colors: [Palette.furDeep.opacity(0),
+                                  Palette.furDeep.opacity(0.56)]),
+                startPoint: CGPoint(x: centre.x - radius * 0.5,
+                                    y: centre.y - radius * 0.8),
+                endPoint: CGPoint(x: centre.x + radius * 0.9,
+                                  y: centre.y + radius * 1.1)))
+        }
+
+        context.drawLayer { layer in
+            layer.clip(to: mass)
+            layer.addFilter(.blur(radius: radius * 0.26))
+            let lit = CGRect(x: centre.x - radius * 0.98, y: centre.y - radius * 1.05,
+                             width: radius * 1.25, height: radius * 1.20)
+            layer.fill(Path(ellipseIn: lit),
+                       with: .color(Palette.furLight.opacity(0.60)))
         }
     }
 
