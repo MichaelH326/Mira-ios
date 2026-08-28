@@ -42,14 +42,22 @@ struct MiraFace: View {
     /// The most drawing area she will take. A cap rather than a fixed height:
     /// the frame is flexible below it, so on a small phone she gives room
     /// back to the caption and the controls instead of pushing them off.
-    static let canvasHeight: CGFloat = 380
+    /// Just above a phone's width on purpose. She is drawn against
+    /// `min(width, height)`, so past the screen's width a taller frame makes
+    /// her no bigger — it only pads her with transparent space that looks
+    /// exactly like the empty screen around her.
+    static let canvasHeight: CGFloat = 400
 
     /// The body as a fraction of the space available, chosen so that the body
-    /// plus the longest strand plus the float still fits. The outer fur band
-    /// reaches 24% past the rim, so 0.5 / 1.24 is the largest body that never
-    /// clips; this backs off from that to leave room for stroke width and the
-    /// bob.
-    private static let bodyFraction: CGFloat = 0.375
+    /// plus the longest strand plus the float still fits.
+    ///
+    /// The outer fur band reaches 24% past the rim, and the rim itself swells
+    /// another 14% of the wobble, so the real extent is about 1.29 radii at
+    /// rest and 1.36 while she speaks. 0.385 keeps the resting silhouette
+    /// inside the frame; the longest strands of the faintest band graze it
+    /// mid-sentence, which they already did and which is invisible at that
+    /// blur.
+    private static let bodyFraction: CGFloat = 0.385
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in

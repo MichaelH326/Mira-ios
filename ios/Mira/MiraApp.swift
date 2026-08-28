@@ -94,13 +94,19 @@ private struct TalkView: View {
                 LiveTranscript(call: call, listener: listener)
             } else {
                 if resting { greeting }
+                // She is drawn against the screen's width, so on a tall phone
+                // there is height left over that nothing can use — she cannot
+                // grow into it and there is deliberately no text to fill it.
+                // Split evenly above and below, that surplus reads as a
+                // centred composition; pooled into one place it reads as a
+                // hole. Both spacers stay for that reason.
                 Spacer(minLength: 0)
                 // Takes its space before the spacers do: her frame is
-                // flexible now, so without this the spacers would split the
-                // slack with her and she would never reach full size.
+                // flexible, so without this the three would split the slack
+                // and she would never reach full size.
                 MiraFace(phase: call.phase, level: listener.audioLevel)
                     .layoutPriority(1)
-                CaptionBand(caption: caption)
+                CaptionBand(caption: caption, reserved: hasConversation)
                 Spacer(minLength: 0)
             }
 
@@ -108,6 +114,11 @@ private struct TalkView: View {
             controlRow
         }
         .animation(.easeInOut(duration: 0.25), value: expanded)
+        // The band opens on the first turn of a conversation and the greeting
+        // goes at the same moment; both resize her, and without these it is a
+        // jump cut.
+        .animation(.easeInOut(duration: 0.28), value: hasConversation)
+        .animation(.easeInOut(duration: 0.22), value: resting)
     }
 
     /// Nothing has happened yet — no conversation, nothing being said, nothing
@@ -157,7 +168,7 @@ private struct TalkView: View {
             .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 22)
-        .padding(.bottom, 16)
+        .padding(.bottom, 10)
         .riseIn(delay: 0.08)
     }
 
@@ -216,7 +227,7 @@ private struct TalkView: View {
         Text(yourName.isEmpty ? Self.timeGreeting : "\(Self.timeGreeting), \(yourName)")
             .font(.system(size: 15, weight: .medium, design: .rounded))
             .foregroundStyle(Palette.inkSoft)
-            .padding(.top, 10)
+            .padding(.top, 6)
     }
 
     private static var timeGreeting: String {
@@ -239,9 +250,16 @@ private struct TalkView: View {
 /// the way any other paragraph does.
 private struct CaptionBand: View {
     let caption: Caption?
+    /// Whether to hold the band's height open with nothing in it.
+    ///
+    /// Gated on there being a conversation at all, not on there being a
+    /// caption right now. Held always, it is 92 points of blank sitting under
+    /// her on a screen that has nothing else on it — the single biggest piece
+    /// of the empty space. Released per caption, it would collapse in every
+    /// gap between turns and bounce her up and down the screen all call.
+    let reserved: Bool
 
-    /// Three lines' worth, held whether or not there is anything to say, so
-    /// Mira doesn't jump up and down the screen as she starts and stops.
+    /// Three lines' worth.
     private static let bandHeight: CGFloat = 92
     private static let size: CGFloat = 24
 
@@ -250,7 +268,7 @@ private struct CaptionBand: View {
             .multilineTextAlignment(.center)
             .lineLimit(3)
             .minimumScaleFactor(0.72)
-            .frame(maxWidth: .infinity, minHeight: Self.bandHeight)
+            .frame(maxWidth: .infinity, minHeight: reserved ? Self.bandHeight : 0)
             .padding(.horizontal, 26)
             .animation(.easeOut(duration: 0.14), value: caption)
     }
@@ -302,7 +320,7 @@ private struct MiraHeader: View {
             .accessibilityLabel("Settings")
         }
         .padding(.horizontal, 18)
-        .padding(.top, 6)
+        .padding(.top, 2)
         .sheet(isPresented: $showSettings) { SettingsView(call: call) }
     }
 }

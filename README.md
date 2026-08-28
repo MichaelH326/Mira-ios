@@ -212,6 +212,13 @@ The silhouette is three low harmonics summed around a circle, each drifting at
 its own rate so it never visibly repeats. Low harmonics on purpose: a high one
 puts many small lobes around the rim, and small lobes read as points.
 
+She is drawn against `min(width, height)` of the space she is given, so on a
+phone she is width-limited: past the screen's width, a taller frame makes her
+no bigger, only padded. `canvasHeight` sits just above a phone's width for
+that reason, and the leftover height on a tall screen is split evenly above
+and below her — surplus that reads as a centred composition when balanced and
+as a hole when it is pooled in one place.
+
 The fluff is three bands of curved strands around that outline — a soft haze
 furthest out, the body of the fluff in the middle, short dense texture close
 in, with width and blur rising and opacity falling as they go outward — plus a
