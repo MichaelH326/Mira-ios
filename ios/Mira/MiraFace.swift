@@ -352,6 +352,47 @@ struct MiraFace: View {
                 y: centre.y + CGFloat(sin(angle)) * r)
     }
 
+    // MARK: - Shading
+
+    /// Light across the whole mass, clipped to it.
+    ///
+    /// The only thing giving her form: the coat is a single flat colour, with
+    /// nothing separating one ring from the next, so without this she is a
+    /// silhouette. Two halves that have to travel together — a lit crown up
+    /// and to the left, and a deepening toward the lower right. Either alone
+    /// reads as a smudge; together they read as a round thing under a light.
+    private func shading(in context: inout GraphicsContext, centre: CGPoint,
+                         radius: CGFloat, churn: Double, wobble: CGFloat) {
+        // Clipped at the rim and not past it. A mask wider than the fur
+        // actually reaches darkens bare background around her, which reads as
+        // a smudge behind her rather than shading on her — and leaving the
+        // tips beyond the rim unshaded is what makes them look backlit.
+        let mass = blob(centre: centre, radius: radius,
+                        churn: churn, wobble: wobble)
+        let box = CGRect(x: centre.x - radius * 1.4, y: centre.y - radius * 1.4,
+                         width: radius * 2.8, height: radius * 2.8)
+
+        context.drawLayer { layer in
+            layer.clip(to: mass)
+            layer.fill(Path(box), with: .linearGradient(
+                Gradient(colors: [Palette.furDeep.opacity(0),
+                                  Palette.furDeep.opacity(0.56)]),
+                startPoint: CGPoint(x: centre.x - radius * 0.5,
+                                    y: centre.y - radius * 0.8),
+                endPoint: CGPoint(x: centre.x + radius * 0.9,
+                                  y: centre.y + radius * 1.1)))
+        }
+
+        context.drawLayer { layer in
+            layer.clip(to: mass)
+            layer.addFilter(.blur(radius: radius * 0.26))
+            let lit = CGRect(x: centre.x - radius * 0.98, y: centre.y - radius * 1.05,
+                             width: radius * 1.25, height: radius * 1.20)
+            layer.fill(Path(ellipseIn: lit),
+                       with: .color(Palette.furLight.opacity(0.60)))
+        }
+    }
+
     /// Deterministic 0…1 from an index. Not good noise; good enough for
     /// fluff. Static because the tuft rings are built before any instance is.
     /// Kept identical in tools/make_icon.py, so the icon's coat is the app's.
