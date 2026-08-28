@@ -10,9 +10,9 @@ and speech synthesis are all on-device.
 - Replies are spoken **sentence by sentence as they generate**, so she starts
   talking before the full answer exists — the same trick `voice/run_mira.py` uses
 - Tap while she's talking to interrupt (normal call behavior)
-- Speaks through **Kokoro-82M**, a neural voice running on the phone via
-  sherpa-onnx — not Apple's synthesizer. Falls back to `AVSpeechSynthesizer`
-  when a build ships without the model
+- Speaks through a **Piper VITS voice** running on the phone via sherpa-onnx —
+  not Apple's synthesizer. Falls back to `AVSpeechSynthesizer` when a build
+  ships without the model
 - Numbers are spoken as words ("fifteen to twenty minutes"), matching the
   training persona
 - Conversation history is carried into every turn and trimmed to fit the context
@@ -25,7 +25,7 @@ ios/
   project.yml                     XcodeGen spec (no binary .xcodeproj in git)
   Mira/                           Swift sources + Info.plist
   Frameworks/                     llama + sherpa-onnx + onnxruntime, built by CI
-  Resources/                      mira.mdlo and kokoro/ — fetched by CI
+  Resources/                      mira.mdlo, voice/, speech/ — fetched by CI
 ```
 
 Neither `llama.xcframework` nor `mira.mdlo` is committed: the framework is
@@ -42,7 +42,7 @@ listed in `.gitignore`.
 | `LlamaEngine.swift` | llama.cpp wrapper, streaming generation |
 | `Speech.swift` | speech-to-text, Apple text-to-speech, number spelling |
 | `VoiceOutput.swift` | the voice protocol and its queue bookkeeping |
-| `KokoroVoice.swift` | Kokoro neural TTS through sherpa-onnx |
+| `LocalVoice.swift` | on-device neural TTS through sherpa-onnx |
 | `CallViewModel.swift` | call state machine |
 | `MiraApp.swift` | SwiftUI interface (`@main` lives here) |
 
@@ -81,9 +81,9 @@ Two workflow inputs:
   you import a model in the app at runtime.
 - **`publish_release`** — `true` (default) attaches the IPA to `ios-latest`;
   `false` builds the artifact only.
-- **`bundle_tts`** — `true` (default) bundles the Kokoro voice, adding about
-  185 MB to the IPA. `false` builds without it and the app uses Apple's
-  synthesizer instead — much faster to iterate on.
+- **`bundle_tts`** — `true` (default) bundles the on-device voice and speech
+  models, adding about 118 MB to the IPA. `false` builds without them and the
+  app uses Apple's synthesizer and recognizer — much faster to iterate on.
 - **`llama_ref`** — which llama.cpp commit to build against. The default is
   `master`. The app uses the current llama.cpp C API (`llama_model_load_from_file`,
   `llama_init_from_model`, `llama_memory_clear`, `llama_model_chat_template`),
@@ -207,36 +207,41 @@ locks.
 ## The voice
 
 Apple's built-in voices are the compact ones unless you have downloaded better
-ones, and they sound it. Mira instead runs **Kokoro-82M** locally through
+ones, and they sound it. Mira instead runs a neural voice locally through
 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) — far more natural, and
 still no network.
 
-The bundled model is `kokoro-int8-multi-lang-v1_1`, int8-quantized, trimmed to
-what an English voice reads:
+The bundled model is `vits-piper-en_US-libritts_r-medium`: a Piper VITS voice
+fine-tuned from `lessac-medium` on LibriTTS-R, 904 speakers at 22.05 kHz.
 
 | Part | Size |
 |---|---|
-| `model.int8.onnx` | 110 MB |
-| `voices.bin` | 52 MB |
-| `espeak-ng-data/` | 19 MB |
-| `lexicon-us-en.txt` | 5.7 MB |
+| `model.onnx` | 75 MB |
+| `espeak-ng-data/` | 0.9 MB |
+| `tokens.txt` | 1 KB |
 
-CI drops the Chinese jieba dictionary, the `zh` lexicon and FSTs, and the
-en-GB lexicon, which saves about 22 MB. `espeak-ng-data` is copied in as a
-**folder reference** so its directory structure survives into the bundle — the
-engine reads it by path.
+This replaced **Kokoro-82M**, which sounded a little better and cost far too
+much for it — 110 MB of int8 weights, a 52 MB voice bank and a 5.7 MB lexicon,
+185 MB in all. The size was the smaller problem. Kokoro is 82 M parameters of
+transformer to run before the first sample exists, so there was an audible beat
+between Mira finishing thinking and starting to talk. A Piper medium model is a
+fraction of that to run, which is what closes the gap.
+
+`espeak-ng-data` ships one pronunciation dictionary per language, and those are
+17 MB of its 19 MB. espeak only ever opens the dictionary for the language it
+is asked for, so CI keeps `en_dict` and deletes the rest — 19 MB to under 1 MB
+with nothing lost for an English voice. It is copied in as a **folder
+reference** so its directory structure survives into the bundle; the engine
+reads it by path.
 
 Sentences are synthesized one at a time on a background actor while the LLM
-generates the next one, and played through an `AVAudioPlayerNode`. Expect
-Kokoro to want another 150–300 MB of RAM alongside the language model; on an
-older device, build with `bundle_tts: false` and use the Apple voice.
+generates the next one, peak-normalised so the level is consistent, and played
+through an `AVAudioPlayerNode`.
 
-`KokoroSynthesizer.speakerID` picks which voice out of `voices.bin` to use —
-0 is an American English one. The sherpa-onnx Kokoro documentation has the
-full table if you want a different speaker.
-
-Settings ▸ *Voice* shows which engine actually loaded, which is the quickest
-way to confirm the model made it into the build.
+`LocalVoice.speakerID` picks which of the 904 speakers to use, clamped to what
+the loaded model actually has. Settings ▸ *Voice* offers the first six and
+shows which engine loaded, which is the quickest way to confirm the model made
+it into the build.
 
 ## Speech to text
 
@@ -255,9 +260,19 @@ speaking — replacing the hand-rolled silence timers that caused the early
 "the button switches on and straight back off" bug. The timers remain only as
 a backstop.
 
-Only the int8 weights are bundled: the float encoder alone is 249 MB against
-67 MB quantized. Total is about 68 MB, and `SFSpeechRecognizer` stays as the
-fallback for builds made with `bundle_tts: false`.
+The model is `sherpa-onnx-streaming-zipformer-en-20M-2023-02-17` — the 20 M
+parameter streaming recipe, in place of the 2023-06-26 model that came before
+it. Roughly a third of the encoder compute per chunk, so partials land sooner,
+and 42 MB against 68 MB.
+
+Only the int8 weights are bundled: the float encoder is 160 MB against 41 MB
+quantized. `SFSpeechRecognizer` stays as the fallback for builds made with
+`bundle_tts: false`.
+
+`StreamingRecognizer` leaves `model_type` empty so sherpa-onnx reads the
+architecture out of the encoder's own ONNX metadata. Hardcoding it means
+keeping the value in sync with whatever CI downloads, and getting it wrong
+fails at load — this model is a `zipformer`, the one before it a `zipformer2`.
 
 ## Performance notes
 

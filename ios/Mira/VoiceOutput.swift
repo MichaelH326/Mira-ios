@@ -2,10 +2,10 @@ import Foundation
 
 /// A voice that speaks Mira's replies one sentence at a time.
 ///
-/// Two implementations: `KokoroVoice`, a neural model running through
+/// Two implementations: `LocalVoice`, a neural model running through
 /// sherpa-onnx, and `Speaker`, Apple's `AVSpeechSynthesizer`. The Apple one is
-/// the fallback whenever the Kokoro model isn't in the bundle, so a build
-/// without the model still talks.
+/// the fallback whenever the model isn't in the bundle, so a build without it
+/// still talks.
 @MainActor
 protocol VoiceOutput: AnyObject {
     /// Called when a reply has finished being spoken — the queue has drained

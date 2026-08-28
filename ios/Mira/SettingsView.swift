@@ -110,7 +110,7 @@ struct SettingsView: View {
             row("Engine") {
                 Picker("", selection: $engine) {
                     Text("Edge (online)").tag("edge")
-                    Text("On-device").tag("kokoro")
+                    Text("On-device").tag("local")
                 }
                 .pickerStyle(.menu)
                 .tint(Palette.skyInk)
@@ -157,7 +157,7 @@ struct SettingsView: View {
             }
             Text(engine == "edge"
                  ? "Edge voices are synthesized by Microsoft, so this needs a connection and the text of Mira's replies is sent to them. If it can't be reached, Mira switches to the on-device voice for the rest of the session."
-                 : "Voices come from the bundled Kokoro model — these are its first six English speakers, not separate personalities.")
+                 : "Voices are speakers of the bundled Piper model, not separate personalities.")
                 .font(.system(size: 12, design: .rounded))
                 .foregroundStyle(Palette.inkFaint)
                 .fixedSize(horizontal: false, vertical: true)
@@ -226,7 +226,7 @@ struct SettingsView: View {
              title: "About", subtitle: "APP INFORMATION") {
             info("Version", Bundle.main.appVersion)
             Divider().overlay(Palette.powder)
-            info("Built on", "llama.cpp · sherpa-onnx · Kokoro")
+            info("Built on", "llama.cpp · sherpa-onnx · Piper")
         }
     }
 

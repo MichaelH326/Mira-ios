@@ -2,15 +2,22 @@ import Foundation
 import AVFoundation
 import SherpaOnnxC
 
-/// Kokoro-82M running on the phone through sherpa-onnx.
+/// The on-device voice: a Piper VITS model through sherpa-onnx.
 ///
-/// Markedly more natural than Apple's compact voices and still fully offline.
-/// The model lives in the app bundle under `kokoro/`; when it isn't there —
+/// This replaced Kokoro-82M, which sounded a little better and cost far too
+/// much for it. Kokoro's int8 weights are 110MB against 60MB here, its voice
+/// bank another 52MB, and — the part that mattered more — it is 82M
+/// parameters of transformer to run before the first sample comes out, so
+/// there was an audible beat between Mira finishing thinking and starting to
+/// talk. Piper's medium models are a fraction of that to run, which turns
+/// that beat into nothing.
+///
+/// The model lives in the app bundle under `voice/`; when it isn't there —
 /// a build made without it — `CallViewModel` falls back to `Speaker`.
 @MainActor
-final class KokoroVoice: VoiceOutput {
+final class LocalVoice: VoiceOutput {
 
-    private let synthesizer: KokoroSynthesizer
+    private let synthesizer: LocalSynthesizer
     private let queue = SpeechQueueState()
 
     private let engine = AVAudioEngine()
@@ -33,7 +40,7 @@ final class KokoroVoice: VoiceOutput {
         set { queue.onDrained = newValue }
     }
 
-    /// Kokoro reports no word boundaries, so the caption's timings are
+    /// VITS reports no word boundaries, so the caption's timings are
     /// estimated from each sentence's own duration.
     var onCaption: ((Caption?) -> Void)?
 
@@ -42,12 +49,18 @@ final class KokoroVoice: VoiceOutput {
     /// starts playing.
     private var captionTail: Task<Void, Never>?
 
-    var describedVoice: String { "Kokoro · voice \(KokoroVoice.chosenSpeaker + 1)" }
+    var describedVoice: String { "On device · voice \(LocalVoice.chosenSpeaker + 1)" }
 
     /// Read at synthesis time rather than held, so a change in Settings
     /// applies to the very next sentence.
     static var chosenSpeaker: Int32 {
         Int32(max(0, UserDefaults.standard.integer(forKey: Prefs.voiceKey)))
+    }
+
+    /// Clamped to what this model actually has, so a preference carried over
+    /// from a build with more voices can't ask for a speaker that isn't there.
+    private var speakerID: Int32 {
+        min(LocalVoice.chosenSpeaker, max(0, synthesizer.speakerCount - 1))
     }
 
     static var chosenSpeed: Float {
@@ -56,16 +69,16 @@ final class KokoroVoice: VoiceOutput {
     }
 
     /// Returns nil when the model isn't bundled, so the caller can fall back.
-    static func makeIfAvailable() -> KokoroVoice? {
-        guard let directory = ModelLocator.bundledKokoroDirectory() else { return nil }
-        return try? KokoroVoice(directory: directory)
+    static func makeIfAvailable() -> LocalVoice? {
+        guard let directory = ModelLocator.bundledVoiceDirectory() else { return nil }
+        return try? LocalVoice(directory: directory)
     }
 
     init(directory: URL) throws {
-        synthesizer = try KokoroSynthesizer(directory: directory)
+        synthesizer = try LocalSynthesizer(directory: directory)
         guard let format = AVAudioFormat(standardFormatWithSampleRate: synthesizer.sampleRate,
                                          channels: 1) else {
-            throw KokoroSynthesizer.EngineError.audioFormatUnavailable
+            throw LocalSynthesizer.EngineError.audioFormatUnavailable
         }
         self.format = format
 
@@ -91,8 +104,9 @@ final class KokoroVoice: VoiceOutput {
             // so playback order matches the order Mira generated them.
             _ = await previous?.value
             guard let self, !Task.isCancelled, self.generation == token else { return }
+            let speaker = self.speakerID
             let samples = await self.synthesizer.synthesize(
-                spoken, speaker: KokoroVoice.chosenSpeaker, speed: KokoroVoice.chosenSpeed)
+                spoken, speaker: speaker, speed: LocalVoice.chosenSpeed)
             guard !Task.isCancelled, self.generation == token else { return }
             self.play(samples, saying: spoken)
         }
@@ -149,7 +163,7 @@ final class KokoroVoice: VoiceOutput {
 
     /// Normalises a sentence so it plays at a consistent, full level.
     ///
-    /// Kokoro's output peaks well below full scale and varies sentence to
+    /// The model's output peaks well below full scale and varies sentence to
     /// sentence, which is the other half of why Mira was quiet. The gain is
     /// capped so a near-silent buffer is not amplified into its own noise
     /// floor, and the target leaves headroom so nothing clips.
@@ -192,7 +206,7 @@ final class KokoroVoice: VoiceOutput {
 
 /// Serializes access to the sherpa-onnx TTS handle, which is not thread-safe,
 /// and keeps synthesis off the main thread.
-actor KokoroSynthesizer {
+actor LocalSynthesizer {
 
     enum EngineError: LocalizedError {
         case filesMissing(String)
@@ -201,31 +215,30 @@ actor KokoroSynthesizer {
 
         var errorDescription: String? {
             switch self {
-            case .filesMissing(let what):  return "The Kokoro voice is missing \(what)."
-            case .initializationFailed:    return "The Kokoro voice couldn't be loaded."
-            case .audioFormatUnavailable:  return "Couldn't open an audio output for the Kokoro voice."
+            case .filesMissing(let what):  return "The on-device voice is missing \(what)."
+            case .initializationFailed:    return "The on-device voice couldn't be loaded."
+            case .audioFormatUnavailable:  return "Couldn't open an audio output for the on-device voice."
             }
         }
     }
 
     private let tts: OpaquePointer
     nonisolated let sampleRate: Double
+    /// How many voices this model has. The picker offers six; the model has
+    /// many more, and a build with fewer must not be asked for one it lacks.
+    nonisolated let speakerCount: Int32
 
     init(directory: URL) throws {
-        let model = directory.appendingPathComponent("model.int8.onnx")
-        let voices = directory.appendingPathComponent("voices.bin")
+        let model = directory.appendingPathComponent("model.onnx")
         let tokens = directory.appendingPathComponent("tokens.txt")
         let espeak = directory.appendingPathComponent("espeak-ng-data")
-        let lexicon = directory.appendingPathComponent("lexicon-us-en.txt")
 
-        for (url, label) in [(model, "model.int8.onnx"), (voices, "voices.bin"),
-                             (tokens, "tokens.txt"), (espeak, "espeak-ng-data")] {
+        for (url, label) in [(model, "model.onnx"), (tokens, "tokens.txt"),
+                             (espeak, "espeak-ng-data")] {
             guard FileManager.default.fileExists(atPath: url.path) else {
                 throw EngineError.filesMissing(label)
             }
         }
-        // The lexicon only improves pronunciation; espeak-ng handles the rest.
-        let lexiconPath = FileManager.default.fileExists(atPath: lexicon.path) ? lexicon.path : ""
 
         // The config holds borrowed C strings; they must outlive the create
         // call, so they're owned here and released once it returns.
@@ -237,17 +250,22 @@ actor KokoroSynthesizer {
             return UnsafePointer(copy)
         }
 
-        var kokoro = SherpaOnnxOfflineTtsKokoroModelConfig()
-        kokoro.model = cString(model.path)
-        kokoro.voices = cString(voices.path)
-        kokoro.tokens = cString(tokens.path)
-        kokoro.data_dir = cString(espeak.path)
-        kokoro.lexicon = cString(lexiconPath)
-        kokoro.lang = cString("en-us")
-        kokoro.length_scale = 1.0
+        var vits = SherpaOnnxOfflineTtsVitsModelConfig()
+        vits.model = cString(model.path)
+        vits.tokens = cString(tokens.path)
+        // With espeak-ng data present the lexicon is ignored, and Piper models
+        // ship no lexicon: espeak does the phonemising.
+        vits.data_dir = cString(espeak.path)
+        vits.lexicon = cString("")
+        // The three scales the model card asks for. A zeroed struct would
+        // leave all of them at 0, which does not fail — it just synthesises
+        // flat, rushed speech, so they have to be set explicitly.
+        vits.noise_scale = 0.333
+        vits.noise_scale_w = 0.333
+        vits.length_scale = 1.0
 
         var modelConfig = SherpaOnnxOfflineTtsModelConfig()
-        modelConfig.kokoro = kokoro
+        modelConfig.vits = vits
         modelConfig.provider = cString("cpu")
         modelConfig.debug = 0
         // Leaves cores for the LLM, which is generating the next sentence.
@@ -264,7 +282,8 @@ actor KokoroSynthesizer {
         tts = handle
 
         let rate = SherpaOnnxOfflineTtsSampleRate(handle)
-        sampleRate = rate > 0 ? Double(rate) : 24000
+        sampleRate = rate > 0 ? Double(rate) : 22050
+        speakerCount = max(1, SherpaOnnxOfflineTtsNumSpeakers(handle))
     }
 
     deinit {

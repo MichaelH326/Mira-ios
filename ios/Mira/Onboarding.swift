@@ -153,7 +153,7 @@ struct OnboardingView: View {
 
     private var voiceStep: some View {
         VStack(spacing: 9) {
-            voiceChoice("On my phone", detail: "Private, works offline", value: "kokoro")
+            voiceChoice("On my phone", detail: "Private, works offline", value: "local")
             voiceChoice("Microsoft Edge", detail: "Better voices, needs a connection", value: "edge")
         }
     }

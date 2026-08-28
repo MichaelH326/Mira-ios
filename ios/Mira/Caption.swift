@@ -30,8 +30,8 @@ struct Caption: Equatable {
 /// Walks a caption through its words in time with the audio.
 ///
 /// Both voices end up here, but they get their timings very differently:
-/// Edge reports real word boundaries from the service, and Kokoro has none,
-/// so its are estimated from the sentence's own duration. Either way what
+/// Edge reports real word boundaries from the service, and the on-device
+/// voice has none, so its are estimated from the sentence's own duration. Either way what
 /// arrives is a start time per word, and this walks them.
 ///
 /// A plain async function rather than an object, so each sentence's caption

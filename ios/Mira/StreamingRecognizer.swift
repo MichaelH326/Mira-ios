@@ -2,7 +2,7 @@ import Foundation
 import SherpaOnnxC
 
 /// Streaming speech-to-text through sherpa-onnx, using the same framework the
-/// Kokoro voice already links against.
+/// on-device voice already links against.
 ///
 /// Preferred over `SFSpeechRecognizer` for three reasons: it is genuinely
 /// on-device rather than falling back to Apple's server recognizer when the
@@ -60,7 +60,12 @@ actor StreamingRecognizer {
         model.transducer = transducer
         model.tokens = cString(tokens.path)
         model.provider = cString("cpu")
-        model.model_type = cString("zipformer2")
+        // Left empty on purpose: sherpa-onnx then reads the architecture from
+        // the encoder's own ONNX metadata. Hardcoding it means the value has
+        // to be kept in sync with whatever CI downloads, and getting it wrong
+        // fails at load — the 20M model is a zipformer, the one before it a
+        // zipformer2.
+        model.model_type = cString("")
         model.debug = 0
         // Leaves room for the language model, which is generating at the same
         // time on the other side of a turn.

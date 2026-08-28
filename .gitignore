@@ -7,7 +7,7 @@ ios/Payload/
 # Too large for git; CI downloads the models from Releases and builds the
 # frameworks from source.
 ios/Resources/mira.mdlo
-ios/Resources/kokoro/
+ios/Resources/voice/
 ios/Resources/speech/
 ios/Frameworks/llama.xcframework/
 ios/Frameworks/sherpa-onnx.xcframework/

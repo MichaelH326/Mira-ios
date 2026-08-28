@@ -23,7 +23,7 @@ on:
         default: "true"
         options: ["true", "false"]
       bundle_tts:
-        description: "Bundle the Kokoro neural voice (~185MB) — 'false' uses Apple's voice"
+        description: "Bundle the on-device voice and speech models (~118MB) — 'false' uses Apple's"
         type: choice
         default: "true"
         options: ["true", "false"]
@@ -45,8 +45,9 @@ jobs:
       PUBLISH_RELEASE: ${{ github.event.inputs.publish_release || 'true' }}
       BUNDLE_TTS: ${{ github.event.inputs.bundle_tts || 'true' }}
       SHERPA_REF: v1.13.6
-      KOKORO_MODEL: kokoro-int8-multi-lang-v1_1
-      ASR_MODEL: sherpa-onnx-streaming-zipformer-en-2023-06-26
+      TTS_MODEL: vits-piper-en_US-libritts_r-medium
+      TTS_ONNX: en_US-libritts_r-medium.onnx
+      ASR_MODEL: sherpa-onnx-streaming-zipformer-en-20M-2023-02-17
     defaults:
       run:
         working-directory: ios
@@ -93,7 +94,7 @@ jobs:
           test -d Frameworks/llama.xcframework/ios-arm64 \
             || { echo "no ios-arm64 slice in llama.xcframework"; exit 1; }
 
-      # sherpa-onnx runs the Kokoro voice. build-ios.sh downloads a prebuilt
+      # sherpa-onnx runs the on-device voice. build-ios.sh downloads a prebuilt
       # onnxruntime and compiles sherpa-onnx for device + both simulator
       # architectures, so the cold build is slow; the cache makes it once.
       - name: Cache sherpa-onnx.xcframework
@@ -130,23 +131,32 @@ jobs:
               || { echo "no ios-arm64 slice in $f.xcframework"; ls "Frameworks/$f.xcframework"; exit 1; }
           done
 
-      - name: Fetch the Kokoro voice
+      - name: Fetch the on-device voice
         if: ${{ env.BUNDLE_TTS != 'false' }}
         run: |
           set -euo pipefail
-          curl -fSL --retry 3 -o /tmp/kokoro.tar.bz2 \
-            "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/${KOKORO_MODEL}.tar.bz2"
-          rm -rf /tmp/kokoro && mkdir -p /tmp/kokoro
-          tar xjf /tmp/kokoro.tar.bz2 -C /tmp/kokoro
-          SRC="/tmp/kokoro/${KOKORO_MODEL}"
-          DEST=Resources/kokoro
+          curl -fSL --retry 3 -o /tmp/tts.tar.bz2 \
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/${TTS_MODEL}.tar.bz2"
+          rm -rf /tmp/tts && mkdir -p /tmp/tts
+          tar xjf /tmp/tts.tar.bz2 -C /tmp/tts
+          SRC="/tmp/tts/${TTS_MODEL}"
+          DEST=Resources/voice
           rm -rf "$DEST" && mkdir -p "$DEST"
-          # Only what an English voice reads. Dropping the Chinese jieba dict,
-          # the zh lexicon/FSTs and the en-GB lexicon saves about 22MB.
-          cp "$SRC/model.int8.onnx" "$SRC/voices.bin" "$SRC/tokens.txt" \
-             "$SRC/lexicon-us-en.txt" "$SRC/LICENSE" "$DEST/"
+          cp "$SRC/${TTS_ONNX}" "$DEST/model.onnx"
+          cp "$SRC/tokens.txt" "$DEST/"
+          cp "$SRC/MODEL_CARD" "$DEST/" 2>/dev/null || true
+
+          # espeak-ng-data ships a pronunciation dictionary per language and
+          # they are 17MB of its 19MB. Mira speaks English, and espeak only
+          # ever opens the dictionary for the language it is asked for, so
+          # every other <lang>_dict is dead weight in the bundle.
           cp -R "$SRC/espeak-ng-data" "$DEST/"
-          du -sh "$DEST"
+          find "$DEST/espeak-ng-data" -maxdepth 1 -name '*_dict' ! -name 'en_dict' -delete
+          test -f "$DEST/espeak-ng-data/en_dict" || { echo "en_dict was deleted"; exit 1; }
+          for f in phondata phonindex phontab intonations; do
+            test -f "$DEST/espeak-ng-data/$f" || { echo "espeak core file $f missing"; exit 1; }
+          done
+          echo "voice: $(du -sh "$DEST" | cut -f1) (espeak $(du -sh "$DEST/espeak-ng-data" | cut -f1))"
 
       - name: Fetch the streaming speech model
         if: ${{ env.BUNDLE_TTS != 'false' }}
@@ -159,8 +169,8 @@ jobs:
           SRC="/tmp/asr/${ASR_MODEL}"
           DEST=Resources/speech
           rm -rf "$DEST" && mkdir -p "$DEST"
-          # int8 only: the float encoder alone is 249MB against 67MB quantized,
-          # and the test wavs and export scripts are not needed on a phone.
+          # int8 only: the float encoder is 160MB against 41MB quantized, and
+          # the test wavs and export scripts are not needed on a phone.
           cp "$SRC"/encoder-*.int8.onnx "$DEST/encoder.onnx"
           cp "$SRC"/decoder-*.int8.onnx "$DEST/decoder.onnx"
           cp "$SRC"/joiner-*.int8.onnx  "$DEST/joiner.onnx"
@@ -232,9 +242,10 @@ jobs:
           test -d "$APP/Frameworks" || { echo "missing embedded frameworks"; exit 1; }
           ls "$APP/Frameworks"
           if [ "$BUNDLE_TTS" != "false" ]; then
-            test -f "$APP/kokoro/model.int8.onnx" || { echo "Kokoro model missing from bundle"; exit 1; }
-            test -d "$APP/kokoro/espeak-ng-data" || { echo "espeak-ng-data flattened or missing"; exit 1; }
-            echo "Kokoro voice bundled: $(du -sh "$APP/kokoro" | cut -f1)"
+            test -f "$APP/voice/model.onnx" || { echo "voice model missing from bundle"; exit 1; }
+            test -d "$APP/voice/espeak-ng-data" || { echo "espeak-ng-data flattened or missing"; exit 1; }
+            test -f "$APP/voice/espeak-ng-data/en_dict" || { echo "en_dict missing from bundle"; exit 1; }
+            echo "voice bundled: $(du -sh "$APP/voice" | cut -f1)"
             test -f "$APP/speech/encoder.onnx" || { echo "speech model missing from bundle"; exit 1; }
             echo "Speech model bundled: $(du -sh "$APP/speech" | cut -f1)"
           fi

@@ -49,6 +49,7 @@ final class CallViewModel: ObservableObject {
     private let maxTurns = 16
 
     init() {
+        Self.migrateVoiceEnginePreference()
         if UserDefaults.standard.object(forKey: Prefs.handsFreeKey) != nil {
             handsFree = UserDefaults.standard.bool(forKey: Prefs.handsFreeKey)
         }
@@ -56,10 +57,21 @@ final class CallViewModel: ObservableObject {
         wireSpeaker()
     }
 
+    /// The on-device engine used to be stored as "kokoro", after the model
+    /// that ran it. Nothing behaves differently — anything that isn't "edge"
+    /// is the local voice — but the Settings picker matches on the tag, so a
+    /// stored "kokoro" would leave it showing nothing selected.
+    private static func migrateVoiceEnginePreference() {
+        let defaults = UserDefaults.standard
+        if defaults.string(forKey: Prefs.engineKey) == "kokoro" {
+            defaults.set("local", forKey: Prefs.engineKey)
+        }
+    }
+
     /// Edge is the default; the on-device voice sits behind it as the fallback,
     /// so a dead connection degrades rather than silences her.
     private static func makeSpeaker() -> any VoiceOutput {
-        let local: any VoiceOutput = KokoroVoice.makeIfAvailable() ?? Speaker()
+        let local: any VoiceOutput = LocalVoice.makeIfAvailable() ?? Speaker()
         let engine = UserDefaults.standard.string(forKey: Prefs.engineKey) ?? "edge"
         return engine == "edge" ? EdgeVoice(fallback: local) : local
     }

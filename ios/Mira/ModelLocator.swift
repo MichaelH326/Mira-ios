@@ -72,11 +72,11 @@ enum ModelLocator {
         return types
     }
 
-    /// The bundled Kokoro voice, if this build shipped one. CI copies the
+    /// The bundled on-device voice, if this build shipped one. CI copies the
     /// unpacked model in as a folder reference, so it keeps its structure —
     /// espeak-ng-data in particular is a directory the engine reads by path.
-    static func bundledKokoroDirectory() -> URL? {
-        guard let url = Bundle.main.url(forResource: "kokoro", withExtension: nil),
+    static func bundledVoiceDirectory() -> URL? {
+        guard let url = Bundle.main.url(forResource: "voice", withExtension: nil),
               FileManager.default.fileExists(atPath:
                 url.appendingPathComponent("model.int8.onnx").path) else { return nil }
         return url
